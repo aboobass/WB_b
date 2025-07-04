@@ -413,10 +413,10 @@ async def process_registration_cabinet_name(message: types.Message, state: FSMCo
     # Добавляем пользователя в конфигурацию
     await run_in_thread(
         add_user_to_config,
-        username=username,
-        api_key=api_key,
-        cabinet_name=cabinet_name,
-        spreadsheet_url=spreadsheet_info['url']
+        username,
+        api_key,
+        cabinet_name,
+        spreadsheet_info['url']
     )
 
     # Сохраняем данные
