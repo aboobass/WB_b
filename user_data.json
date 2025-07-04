@@ -1,1 +1,10 @@
-{"user_mapping": {"1048541521": "user_1048541521", "484879452": "user_484879452", "1417805310": "user_1417805310", "6340428712": "user_6340428712"}, "user_spreadsheet_urls": {"user_1048541521": "https://docs.google.com/spreadsheets/d/1xUAj-b-Yhfo8hg0mBREipC_gMR6B08Lb8sfLdhrMn1U", "user_484879452": "https://docs.google.com/spreadsheets/d/1Qd_GYGV7sOssjkD5khbcP7fB6AZdT8tZp5kmUjsXrsQ", "user_1417805310": "https://docs.google.com/spreadsheets/d/1d12tQD9EVbKt7Zg6UOEKZdHFvaP6yDlGUSLg5t66KHA", "user_6340428712": "https://docs.google.com/spreadsheets/d/1EmZ4Z_TbWZph4tx-iqyuSVSCKvog3GHD0UsXcqm6KGU"}}
+{
+    "user_mapping": {
+        "484879452": "user_484879452",
+        "1417805310": "user_1417805310"
+    },
+    "user_spreadsheet_urls": {
+        "user_484879452": "https://docs.google.com/spreadsheets/d/1Qd_GYGV7sOssjkD5khbcP7fB6AZdT8tZp5kmUjsXrsQ",
+        "user_1417805310": "https://docs.google.com/spreadsheets/d/1d12tQD9EVbKt7Zg6UOEKZdHFvaP6yDlGUSLg5t66KHA"
+    }
+}

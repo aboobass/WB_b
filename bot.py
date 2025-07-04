@@ -164,6 +164,7 @@ class UserDataCache:
 
     async def update_config_cache(self):
         try:
+            
             users = get_available_users_from_config(CONFIG_URL)
             config = {}
             for user in users:
@@ -674,7 +675,7 @@ async def process_report_callback(callback: types.CallbackQuery):
     if not is_admin(user_id):
         await show_main_menu(callback.message.chat.id, "Отчет успешно сформирован. \nВыберите следующее действие:")
 
-async def add_articles_to_sheet(worksheet, articles):
+def add_articles_to_sheet(worksheet, articles):
     """Добавляет артикулы и баркоды в лист таблицы с сортировкой"""
     if not articles:
         return
@@ -690,12 +691,12 @@ async def add_articles_to_sheet(worksheet, articles):
         batch = values[i:i+batch_size]
         try:
             worksheet.append_rows(batch)
-            await asyncio.sleep(1)  # Уменьшено с 7 до 1 секунды
+            time.sleep(1)  # Уменьшено с 7 до 1 секунды
         except Exception as e:
             logging.error(f"Ошибка добавления артикулов и баркодов: {e}")
 
     # Сортируем данные после вставки
-    await run_in_thread(sort_sheet, worksheet)
+    sort_sheet(worksheet)
 
 def sort_sheet(worksheet):
     """Сортирует данные в листе по кабинету и артикулу продавца"""
@@ -809,26 +810,26 @@ def add_user_to_config(username: str, api_key: str, cabinet_name: str, spreadshe
     except Exception as e:
         logging.error(f"Ошибка добавления пользователя в конфиг: {e}")
 
-async def add_cabinet_sheet(spreadsheet, cabinet_name: str, api_key: str):
+def add_cabinet_sheet(spreadsheet, cabinet_name: str, api_key: str):
     try:
         worksheet = spreadsheet.get_worksheet(0)
         articles = get_wb_articles(api_key)
         articles_with_cabinet = [(cabinet_name, nmId, supplierArticle, barcode, techSize)
                                  for (nmId, barcode, supplierArticle, techSize) in articles]
-        await add_articles_to_sheet(worksheet, articles_with_cabinet)
+        add_articles_to_sheet(worksheet, articles_with_cabinet)
         return True
     except Exception as e:
         logging.error(f"Ошибка добавления листа для кабинета: {e}")
         return False
 
-async def add_cabinet_to_user(username: str, api_key: str, cabinet_name: str):
+def add_cabinet_to_user(username: str, api_key: str, cabinet_name: str):
     try:
         spreadsheet_url = cache.user_spreadsheet_urls.get(username)
         worksheet = gc.open_by_key(CONFIG_SHEET_ID).sheet1
         worksheet.append_row([username, api_key, cabinet_name, spreadsheet_url])
         cache.config_cache = None
         spreadsheet = gc.open_by_url(spreadsheet_url)
-        await add_cabinet_sheet(spreadsheet, cabinet_name, api_key)
+        add_cabinet_sheet(spreadsheet, cabinet_name, api_key)
         return True
     except Exception as e:
         logging.error(f"Ошибка добавления кабинета: {e}")
@@ -980,8 +981,21 @@ def update_cabinet_name(username: str, old_name: str, new_name: str) -> bool:
         for i, row in enumerate(records):
             if row[0] == username and row[2] == old_name:
                 worksheet.update_cell(i+1, 3, new_name)
-                return True
-        return False
+        
+        spreadsheet_url = cache.user_spreadsheet_urls.get(username)
+        spreadsheet = gc.open_by_url(spreadsheet_url)
+        worksheet_user = spreadsheet.get_worksheet(0)
+                
+        # Получаем все данные за один запрос
+        all_values = worksheet_user.get_all_values()
+        
+        for i in range(len(all_values)):
+            if all_values[i][0] == old_name:
+                all_values[i][0] = new_name
+        
+        # Обновляем весь лист за один запрос
+        worksheet_user.update(all_values, 'A1')
+        return True
     except Exception as e:
         logging.error(f"Ошибка переименования кабинета: {e}")
         return False
@@ -1079,7 +1093,7 @@ async def refresh_articles_callback(callback: types.CallbackQuery, state: FSMCon
                                       for (nmId, barcode, supplierArticle, techSize) in new_pairs])
         missing_pairs = list(new_pairs_with_cabinet - existing_pairs)
         if missing_pairs:
-            await add_articles_to_sheet(worksheet, missing_pairs)
+            await run_in_thread(add_articles_to_sheet, worksheet, missing_pairs)
             await bot.send_message(callback.from_user.id, f"✅ Добавлено {len(missing_pairs)} новых пар артикулов и баркодов!")
         else:
             await bot.send_message(callback.from_user.id, "ℹ️ Все артикулы и баркоды уже актуальны!")
