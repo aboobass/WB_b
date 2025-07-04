@@ -426,7 +426,7 @@ async def process_registration_cabinet_name(message: types.Message, state: FSMCo
 
     # Открываем таблицу и добавляем первый лист
     spreadsheet = gc.open_by_url(spreadsheet_info['url'])
-    await add_cabinet_sheet(spreadsheet, cabinet_name, api_key)
+    await run_in_thread(add_cabinet_sheet, spreadsheet, cabinet_name, api_key)
 
     await state.finish()
     await message.answer(
