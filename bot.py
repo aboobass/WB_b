@@ -662,28 +662,28 @@ def sort_sheet(worksheet):
     try:
         # Получаем все данные
         all_values = worksheet.get_all_values()
-        if len(all_values) <= 2:  # инструкция + заголовки
+        if len(all_values) <= 3:  # инструкция + пустая строка + заголовки
             return
 
-        # Сохраняем инструкцию и заголовки
-        instruction = all_values[0][0]  # Текст инструкции
-        headers = all_values[1]
-        data = all_values[2:]  # Данные начинаются с 3-й строки
+        # Сохраняем первые три строки (инструкция, пустая, заголовки)
+        instruction_row = all_values[0]
+        header_row = all_values[2]
+        data = all_values[3:]  # Данные начинаются с 4-й строки
 
         # Сортируем по столбцу A (кабинет) и столбцу B (артикул продавца)
-        sorted_data = sorted(data, key=lambda x: (x[0], x[1]))
+        sorted_data = sorted(data, key=lambda x: (x[0], x[1], x[2], x[3], x[4]))
 
         # Обновляем весь лист
         worksheet.clear()
 
         # Восстанавливаем структуру
-        worksheet.append_row([instruction])
-        worksheet.append_row(headers)
-
+        worksheet.append_row(instruction_row)
+        worksheet.append_row(header_row, table_range='A3:G3')
+        
         if sorted_data:
             worksheet.append_rows(sorted_data)
 
-        # Восстанавливаем форматирование и объединение
+        # Восстанавливаем форматирование
         worksheet.format("A1", {
             "textFormat": {
                 "bold": True,
@@ -693,6 +693,18 @@ def sort_sheet(worksheet):
             "wrapStrategy": "WRAP"
         })
         worksheet.merge_cells("A1:G1")
+        
+        # Серый цвет для заголовков (строка 3)
+        worksheet.format("A3:G3", {
+            "backgroundColor": {
+                "red": 0.9,
+                "green": 0.9,
+                "blue": 0.9
+            },
+            "textFormat": {
+                "bold": True
+            }
+        })
 
     except Exception as e:
         logging.error(f"Ошибка сортировки листа: {e}")
@@ -732,13 +744,17 @@ def create_google_spreadsheet(title: str, api_key: str) -> dict:
         spreadsheet = gc.create(title)
         worksheet = spreadsheet.get_worksheet(0)
         worksheet.update_title("Маржа")
+        
+        # Форматирование и инструкции
+        instruction = "Заполните столбцы 'Прибыль с ед. товара' и 'Выкупаемость (%)'. После заполнения можете запросить отчёт."
+        worksheet.update(range_name='A1', values=[[instruction]])
+        
+        # Заголовки с серым фоном
         headers = ["Личный кабинет", "Артикул WB", "Артикул продавца", "Баркод", "Размер",
                    "Прибыль с ед. товара", "Выкупаемость (%)"]
-        worksheet.append_row(headers)
-
-        instruction = "Заполните столбцы прибыль и выкупаемость. \nПосле заполнения можете запросить отчёт, данные обновляются мгновенно"
-        worksheet.insert_row([instruction], index=1)
-
+        worksheet.append_row(headers, table_range='A3:G3')
+        
+        # Форматирование
         worksheet.format("A1", {
             "textFormat": {
                 "bold": True,
@@ -748,7 +764,19 @@ def create_google_spreadsheet(title: str, api_key: str) -> dict:
             "wrapStrategy": "WRAP"
         })
         worksheet.merge_cells("A1:G1")
-
+        
+        # Серый цвет для заголовков (строка 3)
+        worksheet.format("A3:G3", {
+            "backgroundColor": {
+                "red": 0.9,
+                "green": 0.9,
+                "blue": 0.9
+            },
+            "textFormat": {
+                "bold": True
+            }
+        })
+        
         return {'url': spreadsheet.url, 'id': spreadsheet.id}
     except Exception as e:
         logging.error(f"Ошибка создания таблицы: {e}")
@@ -1076,7 +1104,8 @@ async def refresh_articles_callback(callback: types.CallbackQuery, state: FSMCon
 
 def get_actual_articles(worksheet):
     existing_pairs = set()
-    records = worksheet.get_all_values()[2:]
+    # Пропускаем первые 3 строки (инструкция, пустая, заголовки)
+    records = worksheet.get_all_values()[3:]
     for row in records:
         if len(row) >= 5:
             cabinet = str(row[0]).strip()
