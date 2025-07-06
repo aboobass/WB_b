@@ -122,15 +122,10 @@ def calculate_metrics(orders_df, ad_stats_df, client_sheet_id=None):
             orders_grouped.at[index, 'cost'] = round(ad_stats_df.get(
                 int(nmId), 0), 2)
             if (nmId, barcode) in client_data:
-                if client_data[(nmId, barcode)]['redemption']:
+
+                if client_data[(nmId, barcode)]['profit'] and client_data[(nmId, barcode)]['redemption']:
                     orders_grouped.at[index,
                                       'redemption_rate'] = float(client_data[(nmId, barcode)]['redemption']) / 100
-                else:
-                    orders_grouped.at[index,
-                                      'redemption_rate'] = None
-
-                # Обработка прибыли
-                if client_data[(nmId, barcode)]['profit']:
                     orders_grouped.at[index,
                                       'profit_per_unit'] = float(client_data[(nmId, barcode)]['profit'])
                     # Расчёт прибыли
@@ -138,6 +133,8 @@ def calculate_metrics(orders_df, ad_stats_df, client_sheet_id=None):
                         orders_grouped.at[index, 'profit_per_unit'] * orders_grouped.at[index, 'orders_count'] * orders_grouped.at[index,
                                                                                                                                    'redemption_rate']).round(2)
                 else:
+                    orders_grouped.at[index,
+                                      'redemption_rate'] = None
                     orders_grouped.at[index,
                                       'profit_per_unit'] = None
                     orders_grouped.at[index, 'gross_profit'] = None
@@ -382,7 +379,7 @@ def update_google_sheet_multi(sheet_id, sheet_name, data_df, spreadsheet):
 
         # Собираем все данные для одного запроса
         update_range = f"A{start_row}:{last_col_letter}{start_row + len(all_values)}"
-        worksheet.update(update_range, all_values)
+        worksheet.update(range_name=update_range, values=all_values)
 
         # Форматируем итоговую строку
         last_row = start_row + len(values)
@@ -469,21 +466,20 @@ def calculate_metrics_for_bot(orders_df, ad_stats_df, client_sheet_id=None):
                 int(nmId), 0), 2)
             if (nmId, barcode) in client_data:
                 # Обработка прибыли
-                if client_data[(nmId, barcode)]['redemption']:
-                    orders_grouped.at[index,
-                                      'redemption_rate'] = float(client_data[(nmId, barcode)]['redemption'])
-                else:
-                    orders_grouped.at[index,
-                                      'redemption_rate'] = None
 
-                if client_data[(nmId, barcode)]['profit']:
+                if client_data[(nmId, barcode)]['profit'] and client_data[(nmId, barcode)]['redemption']:
+                    orders_grouped.at[index,
+                                      'redemption_rate'] = float(client_data[(nmId, barcode)]['redemption']) / 100
                     orders_grouped.at[index,
                                       'profit_per_unit'] = float(client_data[(nmId, barcode)]['profit'])
+                    
                     # Расчёт прибыли
                     orders_grouped.at[index, 'gross_profit'] = (
                         orders_grouped.at[index, 'profit_per_unit'] * orders_grouped.at[index, 'orders_count'] * orders_grouped.at[index,
-                                                                                                                                   'redemption_rate']/100).round(2)
+                                                                                                                                   'redemption_rate']).round(2)
                 else:
+                    orders_grouped.at[index,
+                                      'redemption_rate'] = None
                     orders_grouped.at[index,
                                       'profit_per_unit'] = None
                     orders_grouped.at[index, 'gross_profit'] = None
