@@ -1130,7 +1130,7 @@ async def on_startup(dp):
     scheduler.add_job(
         main_from_config,
         'cron',
-        hour=0,
+        hour=1,
         minute=0,
         timezone=MOSCOW_TZ,
         args=[CONFIG_URL],
