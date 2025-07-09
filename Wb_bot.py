@@ -127,7 +127,7 @@ def calculate_metrics(orders, ad_stats_df, client_sheet_id=None):
         result = pd.DataFrame(result, columns=['nmId', 'vendorCode', 'ordersCount', 'costs', 'gross_profit', 'ordersSumRub', 'views', 'auto_ctr', 'auction_ctr', 'addToCartConversion', 'cartToOrderConversion'])
 
         for index, row in result.iterrows():
-            if result.at[index, 'gross_profit'] != 0:
+            if result.at[index, 'gross_profit']:
                 result.at[index, 'net_profit'] = (result.at[index, 'gross_profit'] -
                                                   result.at[index, 'costs']).round(2)
             else:
@@ -466,7 +466,7 @@ def calculate_metrics_for_bot(orders, ad_stats_df, client_sheet_id=None):
 
 
         for index, row in result.iterrows():
-            if result.at[index, 'gross_profit'] != 0:
+            if result.at[index, 'gross_profit']:
                 result.at[index, 'net_profit'] = (result.at[index, 'gross_profit'] -
                                                   result.at[index, 'costs']).round(2)
             else:
