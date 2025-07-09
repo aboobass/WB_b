@@ -5,6 +5,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 from config import CONFIG_URL, CREDS
 from WB_ads import get_expenses_per_nm
+from WB_orders import get_dict_orders
 import numpy as np
 
 # Настройки WB API
@@ -24,11 +25,7 @@ def safe_api_call(url, params=None, max_retries=5):
             return response.json() if response.content else []
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 429:
-                retry_after = int(e.response.headers.get('Retry-After', 60))
-                print(f"Превышен лимит запросов. Попытка {retries+1}/{max_retries}. "
-                      f"Пауза {retry_after} сек.")
-                time.sleep(retry_after)
-                retries += 1
+                return {"error": 429}
             else:
                 print(
                     f"HTTP ошибка при запросе {url}: {e.response.status_code} - {e.response.reason}")
@@ -39,7 +36,6 @@ def safe_api_call(url, params=None, max_retries=5):
         except Exception as e:
             print(f"Неизвестная ошибка при запросе {url}: {str(e)}")
             return []
-
     print(
         f"Достигнуто максимальное количество попыток ({max_retries}) для {url}")
     return []
@@ -68,18 +64,18 @@ def get_client_data(sheet_id):
         worksheet = spreadsheet.get_worksheet(0)
 
         # Получаем все данные за один запрос
-        records = worksheet.get_all_records(head=2,
+        records = worksheet.get_all_records(head=3,
                                             value_render_option='UNFORMATTED_VALUE',
-                                            expected_headers=["Артикул WB", "Баркод", "Прибыль с ед. товара",	"Выкупаемость (%)"])
+                                            expected_headers=["Артикул WB", "Артикул продавца", "Прибыль с ед. товара",	"Выкупаемость (%)"])
 
         # Создаем словарь для быстрого поиска по артикулу
         data_dict = {}
 
         for row in records:
-            nmId = str(row.get('Артикул WB')).strip()
-            barcode = str(row.get('Баркод', '')).strip()
-            if nmId and barcode:  # Пропускаем пустые значения
-                data_dict[(nmId, barcode)] = {
+            nmId = int(str(row.get('Артикул WB')).strip())
+            if nmId:  # Пропускаем пустые значения
+                data_dict[nmId] = {
+                    'vendorCode': row.get('Артикул продавца', ''),
                     'profit': row.get('Прибыль с ед. товара', ''),
                     'redemption': row.get('Выкупаемость (%)', )
                 }
@@ -88,93 +84,72 @@ def get_client_data(sheet_id):
         print(f"Ошибка при получении данных из таблицы {sheet_id}: {e}")
         return {}
 
-def calculate_metrics(orders_df, ad_stats_df, client_sheet_id=None):
+def calculate_metrics(orders, ad_stats_df, client_sheet_id=None):
     try:
-        if orders_df.empty:
-            print("Нет данных о заказах для расчетов")
-            return pd.DataFrame()
-
-        # Проверяем наличие столбца 'barcode'
-        if 'barcode' not in orders_df.columns:
-            print("В данных заказов отсутствует столбец 'barcode'")
-            orders_df['barcode'] = ''  # Создаем пустой столбец
-
         # Получаем все данные из таблицы клиента одним запросом
         client_data = {}
         if client_sheet_id:
             client_data = get_client_data(client_sheet_id)
 
-        # Создаем уникальный ID для заказов (с использованием артикула и баркода)
-        orders_df['order_unique_id'] = orders_df['date'] + '_' + \
-            orders_df['nmId'].astype(str) + '_' + \
-            orders_df['barcode'].astype(str)
-
-        # Группируем заказы по артикулам и баркодам
-        orders_grouped = orders_df.groupby(['nmId', 'barcode', 'supplierArticle']).agg(
-            orders_count=('order_unique_id', 'count'),
-            sum_ord=('priceWithDisc', 'sum'),
-            total_revenue=('totalPrice', 'sum')
-        ).reset_index()
-
-        for index, row in orders_grouped.iterrows():
-            nmId = str(int(row['nmId']))
-            barcode = str(int(row['barcode']))
-            orders_grouped.at[index, 'cost'] = round(ad_stats_df.get(
-                int(nmId), 0), 2)
-            if (nmId, barcode) in client_data:
-
-                if client_data[(nmId, barcode)]['profit'] and client_data[(nmId, barcode)]['redemption']:
-                    orders_grouped.at[index,
-                                      'redemption_rate'] = float(client_data[(nmId, barcode)]['redemption']) / 100
-                    orders_grouped.at[index,
-                                      'profit_per_unit'] = float(client_data[(nmId, barcode)]['profit'])
-                    # Расчёт прибыли
-                    orders_grouped.at[index, 'gross_profit'] = (
-                        orders_grouped.at[index, 'profit_per_unit'] * orders_grouped.at[index, 'orders_count'] * orders_grouped.at[index,
-                                                                                                                                   'redemption_rate']).round(2)
-                else:
-                    orders_grouped.at[index,
-                                      'redemption_rate'] = None
-                    orders_grouped.at[index,
-                                      'profit_per_unit'] = None
-                    orders_grouped.at[index, 'gross_profit'] = None
+        for nmId in orders.keys():
+            if nmId in ad_stats_df:
+                orders[nmId]['costs'] = round(ad_stats_df[nmId]['sum'], 2)
+                orders[nmId]['views'] = round(ad_stats_df[nmId]['views'], 2)
+                orders[nmId]['auto_ctr'] = round(ad_stats_df[nmId]['auto_ctr'], 2)
+                orders[nmId]['auction_ctr'] = round(ad_stats_df[nmId]['auction_ctr'], 2)
             else:
-                # Значения по умолчанию
-                orders_grouped.at[index,
-                                  'profit_per_unit'] = None
-                orders_grouped.at[index,
-                                  'redemption_rate'] = None
-                orders_grouped.at[index,
-                                  'gross_profit'] = None
+                orders[nmId]['costs'] = 0.0
+                orders[nmId]['views'] = 0.0
+                orders[nmId]['auto_ctr'] = 0.0
+                orders[nmId]['auction_ctr'] = 0.0
 
-        # Формируем результат
-        result = orders_grouped.groupby(['nmId', 'supplierArticle']).agg({
-            'orders_count': 'sum',
-            'cost': 'first',
-            'sum_ord': 'sum',
-            'gross_profit': 'sum'
-        }).reset_index()
+            if nmId in client_data:
+                if client_data[nmId]['profit'] and client_data[nmId]['redemption']:
+                    orders[nmId]['redemption_rate'] = float(client_data[nmId]['redemption']) / 100
+                    orders[nmId]['profit_per_unit'] = float(client_data[nmId]['profit'])
+
+                    # Расчёт прибыли
+                    orders[nmId]['gross_profit'] = round(orders[nmId]['profit_per_unit'] * orders[nmId]['ordersCount'] * orders[nmId]['redemption_rate'], 2)
+                else:
+                    orders[nmId]['redemption_rate'] = None
+                    orders[nmId]['profit_per_unit'] = None
+                    orders[nmId]['gross_profit']= None
+            else:
+                orders[nmId]['redemption_rate'] = None
+                orders[nmId]['profit_per_unit'] = None
+                orders[nmId]['gross_profit']= None
+        
+        result = []
+        for nmId, values in orders.items():
+            if values['ordersCount'] != 0:
+                result.append([nmId, client_data[nmId]['vendorCode'], values['ordersCount'], values['costs'], values['gross_profit'], values['ordersSumRub'], values['views'], values['auto_ctr'], values['auction_ctr'], values['addToCartConversion'], values['cartToOrderConversion']])
+        result = pd.DataFrame(result, columns=['nmId', 'vendorCode', 'ordersCount', 'costs', 'gross_profit', 'ordersSumRub', 'views', 'auto_ctr', 'auction_ctr', 'addToCartConversion', 'cartToOrderConversion'])
 
         for index, row in result.iterrows():
             if result.at[index, 'gross_profit'] != 0:
                 result.at[index, 'net_profit'] = (result.at[index, 'gross_profit'] -
-                                                  result.at[index, 'cost']).round(2)
+                                                  result.at[index, 'costs']).round(2)
             else:
                 result.at[index, 'net_profit'] = None
-            if result.at[index, 'cost'] and result.at[index, 'sum_ord']:
-                result.at[index, 'drr'] = (result.at[index, 'cost'] /
-                                           result.at[index, 'sum_ord'] * 100).round(2)
+            if result.at[index, 'costs'] and result.at[index, 'ordersSumRub']:
+                result.at[index, 'drr'] = (result.at[index, 'costs'] /
+                                           result.at[index, 'ordersSumRub'] * 100).round(2)
             else:
                 result.at[index, 'drr'] = 0
 
         result = result.rename(columns={
             'nmId': 'Артикул WB',
-            'supplierArticle': 'Артикул продавца',
-            'orders_count': 'Количество заказов за период',
-            'cost': 'Расходы на рекламу по артикулу',
-            'sum_ord': 'Сумма заказов',
+            'vendorCode': 'Артикул продавца',
+            'ordersCount': 'Количество заказов за период',
+            'costs': 'Расходы на рекламу по артикулу',
+            'ordersSumRub': 'Сумма заказов',
             'drr': 'ДРР',
-            'net_profit': 'Чистая прибыль за период по артикулу'
+            'net_profit': 'Чистая прибыль за период по артикулу',
+            'views': 'Показы',
+            'auto_ctr': 'CTR (Автоматические компании)',
+            'auction_ctr': 'CTR (Аукционы)',
+            'addToCartConversion': 'Конверсия в корзину',
+            'cartToOrderConversion': 'Конверсия в заказ'
         })
 
         result['Дата'] = (datetime.now() - timedelta(days=1)
@@ -187,8 +162,8 @@ def calculate_metrics(orders_df, ad_stats_df, client_sheet_id=None):
 
         return result[[
             'Дата', 'Артикул WB', 'Артикул продавца', 'Количество заказов за период',
-            'Расходы на рекламу по артикулу', 'Сумма заказов', 'ДРР',
-            'Чистая прибыль за период по артикулу'
+            'Расходы на рекламу по артикулу', 'Сумма заказов', 'ДРР', 'Чистая прибыль за период по артикулу', 'Показы', 
+            'CTR (Автоматические компании)', 'CTR (Аукционы)', 'Конверсия в корзину', 'Конверсия в заказ', 
         ]]
     except Exception as e:
         print(f"Ошибка при расчете метрик: {str(e)}")
@@ -255,136 +230,117 @@ def update_google_sheet_multi(sheet_id, sheet_name, data_df, spreadsheet):
         return
 
     try:
-        # Определяем количество столбцов и последнюю букву столбца заранее
         num_columns = len(data_df.columns)
-        last_col_letter = gspread.utils.rowcol_to_a1(1, num_columns)[0]
-
+        
         try:
             worksheet = spreadsheet.worksheet(sheet_name)
             is_new_sheet = False
         except gspread.exceptions.WorksheetNotFound:
             worksheet = spreadsheet.add_worksheet(
-                title=sheet_name, rows="100", cols="20")
+                title=sheet_name, rows="100", cols=15)
             is_new_sheet = True
 
-        # Добавляем шапку только при создании нового листа
-        if is_new_sheet:
-            # Добавляем заголовки
-            worksheet.append_row(["Ежедневная статистика"])
-            worksheet.append_row(
-                ["Таблица обновляется ежедневно с 00:00 до 01:00"])
+        # Проверка и расширение столбцов при необходимости
+        current_col_count = worksheet.col_count
+        if num_columns > current_col_count:
+            cols_to_add = num_columns - current_col_count
+            worksheet.add_cols(cols_to_add)
+        
+        last_col_letter = gspread.utils.rowcol_to_a1(1, num_columns)[0]
 
-            # Форматируем шапку
+        if is_new_sheet:
+            # Шапка для нового листа
+            worksheet.append_row(["Ежедневная статистика"])
+            worksheet.append_row(["Таблица обновляется ежедневно с 00:00 до 01:00"])
+            
+            # Форматирование шапки
             worksheet.format('A1:A2', {
-                "textFormat": {
-                    "bold": True,
-                    "fontSize": 14
-                },
+                "textFormat": {"bold": True, "fontSize": 14},
                 "horizontalAlignment": "CENTER"
             })
-
-            # Объединяем ячейки для заголовка
+            
+            # Объединение ячеек
             worksheet.merge_cells(f'A1:{last_col_letter}1')
             worksheet.merge_cells(f'A2:{last_col_letter}2')
-
-            # Добавляем отступ сверху
+            
+            # Отступ и заголовки столбцов
             worksheet.insert_row([""], index=3)
-
-            # Добавляем заголовки столбцов
             worksheet.insert_row(list(data_df.columns), index=4)
-
-            # Форматируем заголовки столбцов
+            
+            # Форматирование заголовков
             header_format = {
                 "textFormat": {"bold": True},
                 "backgroundColor": {"red": 0.9, "green": 0.9, "blue": 0.9},
-                "borders": {
-                    "top": {"style": "SOLID"},
-                    "bottom": {"style": "SOLID"},
-                    "left": {"style": "SOLID"},
-                    "right": {"style": "SOLID"}
-                },
+                "borders": {"top": {"style": "SOLID"}, "bottom": {"style": "SOLID"}, 
+                            "left": {"style": "SOLID"}, "right": {"style": "SOLID"}},
                 "wrapStrategy": "WRAP"
             }
             worksheet.format(f'A4:{last_col_letter}4', header_format)
 
-        # Преобразование numpy-типов в стандартные Python-типы
+        # Подготовка данных
         values = []
         for _, row in data_df.iterrows():
             converted_row = []
             for item in row:
-                # Преобразуем numpy.int64 в int
                 if isinstance(item, np.integer):
                     converted_row.append(int(item))
-                # Преобразуем numpy.float64 в float
                 elif isinstance(item, np.floating):
                     converted_row.append(float(item))
-                # Оставляем другие типы как есть
                 else:
                     converted_row.append(item)
             values.append(converted_row)
 
-        # Рассчитываем итоговые суммы
-        total_orders = 0
-        total_revenue = 0.0
-        total_costs = 0.0
-        total_net_profit = 0.0
-        
-        # Суммируем данные по столбцам
-        if 'Количество заказов за период' in data_df.columns:
-            total_orders = int(data_df['Количество заказов за период'].sum())
-        
-        if 'Сумма заказов' in data_df.columns:
-            total_revenue = float(data_df['Сумма заказов'].sum())
-        
-        if 'Расходы на рекламу по артикулу' in data_df.columns:
-            for val in data_df['Расходы на рекламу по артикулу']:
-                if isinstance(val, (int, float)):
-                    total_costs += val
-                elif isinstance(val, str) and val.replace('.', '').replace(',', '').isdigit():
-                    total_costs += float(val.replace(',', '.'))
-        
-        if 'Чистая прибыль за период по артикулу' in data_df.columns:
-            for val in data_df['Чистая прибыль за период по артикулу']:
-                if isinstance(val, (int, float)):
-                    total_net_profit += val
-
-        # Создаем итоговую строку
-        total_row = [''] * len(data_df.columns)
-        total_row[0] = 'Итого'
-        
-        # Заполняем нужные позиции в строке
+        # Расчет итогов
+        total_orders = total_revenue = total_costs = total_net_profit = 0
         col_index_map = {col: idx for idx, col in enumerate(data_df.columns)}
         
+        if 'Количество заказов за период' in data_df.columns:
+            total_orders = int(data_df['Количество заказов за период'].sum())
+        if 'Сумма заказов' in data_df.columns:
+            total_revenue = float(data_df['Сумма заказов'].sum())
+        if 'Расходы на рекламу по артикулу' in data_df.columns:
+            total_costs = sum([float(str(val).replace(',', '.')) if isinstance(val, str) else val 
+                              for val in data_df['Расходы на рекламу по артикулу']])
+        if 'Чистая прибыль за период по артикулу' in data_df.columns:
+            total_net_profit = sum(data_df['Чистая прибыль за период по артикулу'])
+        
+        # Формирование итоговой строки
+        total_row = [''] * num_columns
+        total_row[0] = 'Итого'
         if 'Количество заказов за период' in col_index_map:
             total_row[col_index_map['Количество заказов за период']] = total_orders
-        
         if 'Сумма заказов' in col_index_map:
             total_row[col_index_map['Сумма заказов']] = total_revenue
-        
         if 'Расходы на рекламу по артикулу' in col_index_map:
             total_row[col_index_map['Расходы на рекламу по артикулу']] = total_costs
-        
         if 'Чистая прибыль за период по артикулу' in col_index_map:
             total_row[col_index_map['Чистая прибыль за период по артикулу']] = total_net_profit
-
-        # Добавляем итоговую строку
+        
         all_values = values + [total_row]
 
-        # Определяем начальную строку для вставки
+        # Определение стартовой строки
         if is_new_sheet:
             start_row = 5
         else:
+            # ВАЖНО: Используем только строки с данными (игнорируем пустые строки)
             all_values_in_sheet = worksheet.get_all_values()
             start_row = len(all_values_in_sheet) + 1
+        
+        # Проверка и расширение строк
+        current_row_count = worksheet.row_count
+        last_row_needed = start_row + len(all_values)
+        if last_row_needed > current_row_count:
+            worksheet.add_rows(last_row_needed - current_row_count)
 
-        # Собираем все данные для одного запроса
-        update_range = f"A{start_row}:{last_col_letter}{start_row + len(all_values)}"
+        # Запись данных
+        update_range = f"A{start_row}:{last_col_letter}{start_row + len(all_values) - 1}"
         worksheet.update(range_name=update_range, values=all_values)
 
-        # Форматируем итоговую строку
-        last_row = start_row + len(values)
-        total_row_range = f"A{last_row}:{last_col_letter}{last_row}"
+        # ИСПРАВЛЕНИЕ: Правильный расчет позиции итоговой строки
+        total_row_position = start_row + len(values)
+        total_row_range = f"A{total_row_position}:{last_col_letter}{total_row_position}"
         
+        # Применяем форматирование ТОЛЬКО к строке "Итого"
         worksheet.format(total_row_range, {
             "textFormat": {"bold": True},
             "backgroundColor": {"red": 0.95, "green": 0.95, "blue": 0.95}
@@ -418,11 +374,11 @@ def main_from_config(config_url: str, date_from=None, date_to=None):
                 global WB_API_KEY, HEADERS
                 WB_API_KEY = wb_key
                 HEADERS = {'Authorization': WB_API_KEY}
-
-                orders_df = get_wb_orders(date_from, date_to)
+                orders = get_dict_orders(HEADERS, date_from[:10])
+                # orders_df = get_wb_orders(date_from, date_to)
                 ad_stats_df = get_expenses_per_nm(HEADERS, date_from)
                 metrics_df = calculate_metrics(
-                    orders_df, ad_stats_df, sheet_id)
+                    orders, ad_stats_df, sheet_id)
 
                 if not metrics_df.empty:
                     update_google_sheet_multi(
@@ -433,85 +389,56 @@ def main_from_config(config_url: str, date_from=None, date_to=None):
     except Exception as e:
         print(f"Критическая ошибка: {e}")
 
-def calculate_metrics_for_bot(orders_df, ad_stats_df, client_sheet_id=None):
+def calculate_metrics_for_bot(orders, ad_stats_df, client_sheet_id=None):
     try:
-        if orders_df.empty:
-            print("Нет данных о заказах для расчетов")
-            return pd.DataFrame()
-
-        # Проверяем наличие столбца 'barcode'
-        if 'barcode' not in orders_df.columns:
-            print("В данных заказов отсутствует столбец 'barcode'")
-            orders_df['barcode'] = ''  # Создаем пустой столбец
         # Получаем все данные из таблицы клиента одним запросом
         client_data = {}
         if client_sheet_id:
             client_data = get_client_data(client_sheet_id)
 
-        # Создаем уникальный ID для заказов (с использованием артикула и баркода)
-        orders_df['order_unique_id'] = orders_df['date'] + '_' + \
-            orders_df['nmId'].astype(str) + '_' + \
-            orders_df['barcode'].astype(str)
-
-        # Группируем заказы по артикулам и баркодам
-        orders_grouped = orders_df.groupby(['nmId', 'barcode', 'supplierArticle']).agg(
-            orders_count=('order_unique_id', 'count'),
-            total_revenue=('totalPrice', 'sum')
-        ).reset_index()
-
-        for index, row in orders_grouped.iterrows():
-            nmId = str(int(row['nmId']))
-            barcode = str(int(row['barcode']))
-            orders_grouped.at[index, 'cost'] = round(ad_stats_df.get(
-                int(nmId), 0), 2)
-            if (nmId, barcode) in client_data:
-                # Обработка прибыли
-
-                if client_data[(nmId, barcode)]['profit'] and client_data[(nmId, barcode)]['redemption']:
-                    orders_grouped.at[index,
-                                      'redemption_rate'] = float(client_data[(nmId, barcode)]['redemption']) / 100
-                    orders_grouped.at[index,
-                                      'profit_per_unit'] = float(client_data[(nmId, barcode)]['profit'])
-                    
-                    # Расчёт прибыли
-                    orders_grouped.at[index, 'gross_profit'] = (
-                        orders_grouped.at[index, 'profit_per_unit'] * orders_grouped.at[index, 'orders_count'] * orders_grouped.at[index,
-                                                                                                                                   'redemption_rate']).round(2)
-                else:
-                    orders_grouped.at[index,
-                                      'redemption_rate'] = None
-                    orders_grouped.at[index,
-                                      'profit_per_unit'] = None
-                    orders_grouped.at[index, 'gross_profit'] = None
+        for nmId in orders.keys():
+            if nmId in ad_stats_df:
+                orders[nmId]['costs'] = round(ad_stats_df[nmId]['sum'], 2)
+                # orders[nmId]['views'] = round(ad_stats_df[nmId]['views'], 2)
+                # orders[nmId]['auto_ctr'] = round(ad_stats_df[nmId]['auto_ctr'], 2)
+                # orders[nmId]['auction_ctr'] = round(ad_stats_df[nmId]['auction_ctr'], 2)
             else:
-                # Значения по умолчанию
-                orders_grouped.at[index,
-                                  'profit_per_unit'] = None
-                orders_grouped.at[index,
-                                  'redemption_rate'] = None
-                orders_grouped.at[index,
-                                  'gross_profit'] = None
-                orders_grouped.at[index, 'net_profit'] = None
+                orders[nmId]['costs'] = 0 
+            
+            if nmId in client_data:
+                if client_data[nmId]['profit'] and client_data[nmId]['redemption']:
+                    orders[nmId]['redemption_rate'] = float(client_data[nmId]['redemption']) / 100
+                    orders[nmId]['profit_per_unit'] = float(client_data[nmId]['profit'])
 
-        # Формируем результат
-        result = orders_grouped.groupby(['nmId', 'supplierArticle']).agg({
-            'orders_count': 'sum',
-            'cost': 'first',
-            'gross_profit': 'sum'
-        }).reset_index()
+                    # Расчёт прибыли
+                    orders[nmId]['gross_profit'] = round(orders[nmId]['profit_per_unit'] * orders[nmId]['ordersCount'] * orders[nmId]['redemption_rate'], 2)
+                else:
+                    orders[nmId]['redemption_rate'] = None
+                    orders[nmId]['profit_per_unit'] = None
+                    orders[nmId]['gross_profit']= None
+            else:
+                orders[nmId]['redemption_rate'] = None
+                orders[nmId]['profit_per_unit'] = None
+                orders[nmId]['gross_profit']= None
+        result = []
+        for nmId, values in orders.items():
+            if values['ordersCount'] != 0:
+                result.append([nmId, client_data[nmId]['vendorCode'], values['ordersCount'], values['costs'], values['gross_profit'], values['ordersSumRub']])
+        result = pd.DataFrame(result, columns=['nmId', 'vendorCode', 'ordersCount', 'costs', 'gross_profit', 'ordersSumRub'])
+
 
         for index, row in result.iterrows():
             if result.at[index, 'gross_profit'] != 0:
                 result.at[index, 'net_profit'] = (result.at[index, 'gross_profit'] -
-                                                  result.at[index, 'cost']).round(2)
+                                                  result.at[index, 'costs']).round(2)
             else:
                 result.at[index, 'net_profit'] = None
 
         result = result.rename(columns={
             'nmId': 'Артикул WB',
-            'supplierArticle': 'Артикул продавца',
-            'orders_count': 'Кол-во заказов',
-            'cost': 'Расходы РК',
+            'vendorCode': 'Артикул продавца',
+            'ordersCount': 'Кол-во заказов',
+            'costs': 'Расходы РК',
             'net_profit': 'Прибыль'
         })
         return result[[
@@ -563,10 +490,11 @@ def generate_report(sheet_user: str, sheet_name: str, config_url: str, date_from
                     WB_API_KEY = wb_key
                     HEADERS = {'Authorization': WB_API_KEY}
 
-                    orders_df = get_wb_orders(date_from, date_to)
+                    orders = get_dict_orders(HEADERS, date_from[:10])
                     ad_stats_df = get_expenses_per_nm(HEADERS, date_from)
+                        
                     metrics_df = calculate_metrics_for_bot(
-                        orders_df, ad_stats_df, sheet_id)
+                        orders, ad_stats_df, sheet_id)
                     summary = generate_summary(metrics_df)
 
                     return metrics_df[[

@@ -21,11 +21,12 @@ from aiogram.utils.exceptions import MessageNotModified
 from aiogram.dispatcher.handler import CancelHandler
 from aiogram.dispatcher.middlewares import BaseMiddleware
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor  # Добавлен импорт
+from concurrent.futures import ThreadPoolExecutor
 import time
 
 from config import API_TOKEN, CONFIG_URL, ADMIN_IDS, CREDS, CONFIG_SHEET_ID
 from Wb_bot import get_available_users_from_config, get_user_cabinets, generate_report, main_from_config
+from WB_orders import get_wb_product_cards
 
 # Добавляем клавиатуру с кнопкой "Главное меню"
 main_menu_keyboard = ReplyKeyboardMarkup(resize_keyboard=True).add(KeyboardButton("Главное меню"))
@@ -81,6 +82,20 @@ EMAIL_REGEX = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
 # Инициализация Google Sheets API
 gc = gspread.authorize(CREDS)
 
+# Глобальный словарь для отслеживания активных запросов
+active_requests = {}
+
+class ActiveRequestMiddleware(BaseMiddleware):
+    async def on_pre_process_callback_query(self, callback_query: types.CallbackQuery, data: dict):
+        user_id = callback_query.from_user.id
+        # Разрешаем кнопку "Главное меню"
+        if callback_query.data == "back_to_main":
+            return
+        
+        if active_requests.get(user_id):
+            await callback_query.answer("Дождитесь генерации прошлого отчёта", show_alert=True)
+            raise CancelHandler()
+
 # Собственная реализация rate limiter
 class RateLimiterMiddleware(BaseMiddleware):
     def __init__(self, limit=3, interval=5):
@@ -110,6 +125,7 @@ class RateLimiterMiddleware(BaseMiddleware):
 
 # Регистрируем middleware для rate limiting
 dp.middleware.setup(RateLimiterMiddleware(limit=4, interval=5))
+dp.middleware.setup(ActiveRequestMiddleware())
 
 def get_cancel_keyboard():
     kb = InlineKeyboardMarkup()
@@ -311,7 +327,7 @@ async def show_spreadsheet_callback(callback: types.CallbackQuery):
             "📊 Ваша таблица с данными:\n"
             f"{spreadsheet_url}\n\n"
             "В этой таблице вы можете:\n"
-            "1. Видеть все ваши артикулы и баркоды\n"
+            "1. Видеть все ваши артикулы\n"
             "2. Заполнять столбцы 'Прибыль' и 'Выкупаемость'\n"
             "3. После заполнения запрашивать отчеты"
         )
@@ -516,25 +532,6 @@ async def back_to_main_callback(callback: types.CallbackQuery):
         await show_main_menu(callback.message.chat.id)
     await callback.message.delete()
 
-def wrap_header(header, max_width=15):
-    header = str(header)
-    header = header.replace('/', ' / ').replace('\\', ' \\ ')
-    words = header.split()
-    lines = []
-    current_line = ""
-
-    for word in words:
-        if len(current_line) + len(word) + 1 <= max_width:
-            if current_line:
-                current_line += " "
-            current_line += word
-        else:
-            lines.append(current_line)
-            current_line = word
-    if current_line:
-        lines.append(current_line)
-    return "\n".join(lines)
-
 async def send_report_as_file(chat_id: int, username: str, cabinet_name: str, df: pd.DataFrame, summary: str):
     try:
         with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as temp_file:
@@ -591,9 +588,17 @@ async def process_report_callback(callback: types.CallbackQuery):
     if is_admin(user_id):
         return
     
+    # Проверяем активные запросы
+    if active_requests.get(user_id):
+        await callback.answer("Дождитесь генерации прошлого отчёта", show_alert=True)
+        return
+    
     parts = callback.data.split(":")
     username = parts[1]
     cabinet = parts[2]
+    
+    # Помечаем запрос как активный
+    active_requests[user_id] = True
     
     wait_message = await bot.send_message(user_id, "🔄 Ожидайте 30 сек, идёт формирование отчета...", reply_markup=main_menu_keyboard)
     try:
@@ -607,6 +612,12 @@ async def process_report_callback(callback: types.CallbackQuery):
             summ = {'costs': 0.0, 'profit': 0.0}
             for cabinet_name in cabinets:
                 df, summary = await run_in_thread(generate_report, username, cabinet_name, CONFIG_URL)
+                
+                # Обработка ошибки 429
+                if summary == "429_error":
+                    await bot.send_message(user_id, "Превышен лимит на запросы, попробуйте позднее")
+                    return
+                    
                 if df is not None and not df.empty:
                     parts = summary.split(':')
                     summ["costs"] += float(parts[1])
@@ -619,6 +630,12 @@ async def process_report_callback(callback: types.CallbackQuery):
                 parse_mode="HTML")
         else:
             df, summary = await run_in_thread(generate_report, username, cabinet, CONFIG_URL)
+            
+            # Обработка ошибки 429
+            if summary == "429_error":
+                await bot.send_message(user_id, "Превышен лимит на запросы, попробуйте позднее")
+                return
+                
             if df is None or df.empty:
                 await bot.send_message(user_id, f"Нет данных по {cabinet}.")
             else:
@@ -627,6 +644,8 @@ async def process_report_callback(callback: types.CallbackQuery):
         logging.error(f"Ошибка формирования отчета: {e}")
         await bot.send_message(user_id, "❌ Произошла ошибка при формировании отчета")
     finally:
+        # Снимаем блокировку
+        active_requests.pop(user_id, None)
         try:
             await bot.delete_message(user_id, wait_message.message_id)
         except:
@@ -650,9 +669,9 @@ def add_articles_to_sheet(worksheet, articles):
         batch = values[i:i+batch_size]
         try:
             worksheet.append_rows(batch)
-            time.sleep(1)  # Уменьшено с 7 до 1 секунды
+            time.sleep(1)
         except Exception as e:
-            logging.error(f"Ошибка добавления артикулов и баркодов: {e}")
+            logging.error(f"Ошибка добавления артикулов: {e}")
 
     # Сортируем данные после вставки
     sort_sheet(worksheet)
@@ -671,14 +690,14 @@ def sort_sheet(worksheet):
         data = all_values[3:]  # Данные начинаются с 4-й строки
 
         # Сортируем по столбцу A (кабинет) и столбцу B (артикул продавца)
-        sorted_data = sorted(data, key=lambda x: (x[0], x[1], x[2], x[3], x[4]))
-
+        sorted_data = sorted(data, key=lambda x: (x[0], x[1], x[2]))
+        #####################################################################################################################################################
         # Обновляем весь лист
         worksheet.clear()
 
         # Восстанавливаем структуру
         worksheet.append_row(instruction_row)
-        worksheet.append_row(header_row, table_range='A3:G3')
+        worksheet.append_row(header_row, table_range='A3:E3')
         
         if sorted_data:
             worksheet.append_rows(sorted_data)
@@ -692,10 +711,10 @@ def sort_sheet(worksheet):
             "horizontalAlignment": "LEFT",
             "wrapStrategy": "WRAP"
         })
-        worksheet.merge_cells("A1:G1")
+        worksheet.merge_cells("A1:E1")
         
         # Серый цвет для заголовков (строка 3)
-        worksheet.format("A3:G3", {
+        worksheet.format("A3:E3", {
             "backgroundColor": {
                 "red": 0.9,
                 "green": 0.9,
@@ -716,23 +735,14 @@ def get_wb_articles(api_key: str):
     headers = {"Authorization": api_key}
 
     try:
-        response = requests.get(url+"stocks", headers=headers, params=params)
-        response.raise_for_status()
-        stocks_data = response.json()
-
-        response2 = requests.get(url+"orders", headers=headers, params=params)
-        response2.raise_for_status()
-        orders_data = response.json()
-
-        all_data = stocks_data + orders_data
+        cards = get_wb_product_cards(headers)
+        nm_ids = [(product['nmID'], product['vendorCode']) for product in cards]
         unique_pairs = set()
-        for item in all_data:
-            nmId = str(item.get('nmId', ''))
-            barcode = str(item.get('barcode', ''))
-            supplierArticle = str(item.get('supplierArticle', ''))
-            techSize = str(item.get('techSize', ''))
-            if nmId and barcode:
-                unique_pairs.add((nmId, barcode, supplierArticle, techSize))
+        for item in nm_ids:
+            nmId = str(item[0])
+            supplierArticle = str(item[1])
+            if nmId:
+                unique_pairs.add((nmId, supplierArticle))
 
         return list(unique_pairs)
     except Exception as e:
@@ -750,9 +760,9 @@ def create_google_spreadsheet(title: str, api_key: str) -> dict:
         worksheet.update(range_name='A1', values=[[instruction]])
         
         # Заголовки с серым фоном
-        headers = ["Личный кабинет", "Артикул WB", "Артикул продавца", "Баркод", "Размер",
+        headers = ["Личный кабинет", "Артикул WB", "Артикул продавца",
                    "Прибыль с ед. товара", "Выкупаемость (%)"]
-        worksheet.append_row(headers, table_range='A3:G3')
+        worksheet.append_row(headers, table_range='A3:E3')
         
         # Форматирование
         worksheet.format("A1", {
@@ -763,10 +773,10 @@ def create_google_spreadsheet(title: str, api_key: str) -> dict:
             "horizontalAlignment": "LEFT",
             "wrapStrategy": "WRAP"
         })
-        worksheet.merge_cells("A1:G1")
+        worksheet.merge_cells("A1:E1")
         
         # Серый цвет для заголовков (строка 3)
-        worksheet.format("A3:G3", {
+        worksheet.format("A3:E3", {
             "backgroundColor": {
                 "red": 0.9,
                 "green": 0.9,
@@ -801,8 +811,8 @@ def add_cabinet_sheet(spreadsheet, cabinet_name: str, api_key: str):
     try:
         worksheet = spreadsheet.get_worksheet(0)
         articles = get_wb_articles(api_key)
-        articles_with_cabinet = [(cabinet_name, nmId, supplierArticle, barcode, techSize)
-                                 for (nmId, barcode, supplierArticle, techSize) in articles]
+        articles_with_cabinet = [(cabinet_name, nmId, supplierArticle)
+                                 for (nmId, supplierArticle) in articles]
         add_articles_to_sheet(worksheet, articles_with_cabinet)
         return True
     except Exception as e:
@@ -1084,8 +1094,8 @@ async def refresh_articles_callback(callback: types.CallbackQuery, state: FSMCon
         worksheet = spreadsheet.get_worksheet(0)
         existing_pairs = get_actual_articles(worksheet)
         new_pairs = set(get_wb_articles(api_key))
-        new_pairs_with_cabinet = set([(cabinet_name, nmId, supplierArticle, barcode,  techSize)
-                                      for (nmId, barcode, supplierArticle, techSize) in new_pairs])
+        new_pairs_with_cabinet = set([(cabinet_name, nmId, supplierArticle)
+                                      for (nmId, supplierArticle) in new_pairs])
         missing_pairs = list(new_pairs_with_cabinet - existing_pairs)
         if missing_pairs:
             await run_in_thread(add_articles_to_sheet, worksheet, missing_pairs)
@@ -1111,10 +1121,8 @@ def get_actual_articles(worksheet):
             cabinet = str(row[0]).strip()
             nmId = str(row[1]).strip()
             article = str(row[2]).strip()
-            barcode = str(row[3]).strip()
-            size = str(row[4]).strip()
-            if cabinet and nmId and article and barcode and size:
-                existing_pairs.add((cabinet, nmId, article, barcode, size))
+            if cabinet and nmId and article:
+                existing_pairs.add((cabinet, nmId, article))
     return existing_pairs
 
 async def on_startup(dp):

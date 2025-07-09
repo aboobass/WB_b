@@ -24,12 +24,8 @@ def safe_request(HEADERS, url, method='GET', json_data=None, params=None, max_re
             
             # Обработка 429 Too Many Requests
             if response.status_code == 429:
-                retry_after = int(response.headers.get('Retry-After', 60))
-                print(
-                    f"Ошибка 429. Попытка {attempt+1}/{max_retries}. Ожидаем {retry_after} секунд.")
-                sleep(retry_after)
-                continue
-
+                return "429_error"
+              
             # Обработка 204 No Content
             if response.status_code == 204:
                 return None
@@ -78,7 +74,7 @@ def get_promotion_campaigns(HEADERS):
 
         for campaign in campaigns:
             nm_ids = []
-
+            type_comp = 'no'
             if 'params' in campaign:
                 for param in campaign['params']:
                     for nm_item in param.get('nms', []):
@@ -91,18 +87,20 @@ def get_promotion_campaigns(HEADERS):
                 auto_nms = campaign['autoParams'].get('nms', [])
                 if isinstance(auto_nms, list):
                     nm_ids.extend(auto_nms)
-
+                type_comp = 'auto'
             if 'unitedParams' in campaign:
                 for param in campaign['unitedParams']:
                     united_nms = param.get('nms', [])
                     if isinstance(united_nms, list):
                         nm_ids.extend(united_nms)
+                type_comp = 'auction'
 
             nm_ids = list(set(filter(lambda x: x is not None, nm_ids)))
 
             result.append({
                 'advertId': campaign['advertId'],
                 'type': 'promotion',
+                'tipe_comp': type_comp,
                 'createTime': campaign.get('createTime', ''),
                 'expenses': 0,  # Временное значение
                 'nmIds': nm_ids
@@ -123,8 +121,10 @@ def get_expenses_per_nm(HEADERS, date=None):
         date = date[:10]
 
     # Формируем запросы по 100 кампаний
-    nm_expenses = defaultdict(float)
-
+    nm_expenses = defaultdict(dict )
+    auto_ctr = 0.0
+    auction_ctr = 0.0
+            
     for i in range(0, len(campaigns), 100):
         chunk = campaigns[i:i+100]
         request_body = []
@@ -148,6 +148,8 @@ def get_expenses_per_nm(HEADERS, date=None):
             advert_id = campaign_data.get('advertId')
             total_expense = campaign_data.get('sum', 0)
 
+            views = campaign_data.get('views', 0)
+
             # Находим соответствующую кампанию в нашем списке
             campaign = next(
                 (c for c in chunk if c['advertId'] == advert_id), None)
@@ -157,10 +159,24 @@ def get_expenses_per_nm(HEADERS, date=None):
             nmIds = campaign['nmIds']
             if not nmIds or total_expense <= 0:
                 continue
+            
+            if campaign['tipe_comp'] == 'auto':
+                auto_ctr = float(campaign_data.get('ctr', 0))
+            elif campaign['tipe_comp'] == 'auction':
+                auction_ctr = float(campaign_data.get('ctr', 0))
+            else:
+                auto_ctr = 0
+                auction_ctr = 0
 
             # Распределяем затраты по артикулам
             expense_per_nm = total_expense / len(nmIds)
+            views_per_nm = views / len(nmIds)
+            auto_ctr_per_nm = auto_ctr / len(nmIds)
+            auction_ctr_per_nm =  auction_ctr / len(nmIds)
             for nmId in nmIds:
-                nm_expenses[nmId] += expense_per_nm
-
+                nm_expenses[nmId]['sum'] = nm_expenses[nmId].get('sum', 0) + expense_per_nm
+                nm_expenses[nmId]['views'] = nm_expenses[nmId].get('views', 0) + views_per_nm
+                nm_expenses[nmId]['auto_ctr'] = nm_expenses[nmId].get('auto_ctr', 0) + auto_ctr_per_nm
+                nm_expenses[nmId]['auction_ctr'] = nm_expenses[nmId].get('auction_ctr', 0) + auction_ctr_per_nm
+            # print(nm_expenses)
     return dict(nm_expenses)
