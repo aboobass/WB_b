@@ -254,7 +254,7 @@ async def show_admin_menu(chat_id, message_text="Выберите действи
 # Функция для запуска блокирующих операций в отдельном потоке
 def run_in_thread(func, *args):
     loop = asyncio.get_running_loop()
-    with ThreadPoolExecutor() as pool:
+    with ThreadPoolExecutor(100) as pool:
         return loop.run_in_executor(pool, func, *args)
 
 @dp.callback_query_handler(lambda c: c.data == "subscribe")
