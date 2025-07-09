@@ -530,7 +530,7 @@ def generate_report(sheet_user: str, sheet_name: str, config_url: str, date_from
                     # Получение данных с возобновляемой обработкой
                     orders = None
                     orders_state = None
-                    max_retries = 5
+                    max_retries = 10
                     cards = get_wb_product_cards(HEADERS)
                     for attempt in range(max_retries):
                         orders = get_dict_orders(HEADERS, date_from[:10], state=orders_state, cards=cards)
@@ -550,6 +550,7 @@ def generate_report(sheet_user: str, sheet_name: str, config_url: str, date_from
                     if isinstance(orders, dict) and orders.get('error') == 429:
                         return pd.DataFrame(), "429_error"
                     
+                    max_retries = 3
                     # Получение расходов на рекламу
                     ad_stats = None
                     ad_state = None
