@@ -5,8 +5,9 @@ import pandas as pd
 from datetime import datetime, timedelta
 from config import CONFIG_URL, CREDS
 from WB_ads import get_expenses_per_nm
-from WB_orders import get_dict_orders
+from WB_orders import get_dict_orders, get_wb_product_cards
 import numpy as np
+import logging
 
 # Настройки WB API
 WB_STAT_URL = 'https://statistics-api.wildberries.ru/api/v1/supplier/'
@@ -374,11 +375,48 @@ def main_from_config(config_url: str, date_from=None, date_to=None):
                 global WB_API_KEY, HEADERS
                 WB_API_KEY = wb_key
                 HEADERS = {'Authorization': WB_API_KEY}
-                orders = get_dict_orders(HEADERS, date_from[:10])
-                # orders_df = get_wb_orders(date_from, date_to)
-                ad_stats_df = get_expenses_per_nm(HEADERS, date_from)
+                # Получение данных с возобновляемой обработкой
+                orders = None
+                orders_state = None
+                max_retries = 10
+                cards = get_wb_product_cards(HEADERS)
+                for attempt in range(max_retries):
+                    orders = get_dict_orders(HEADERS, date_from[:10], state=orders_state, cards=cards)
+                    
+                    # Если получили состояние для повтора
+                    if isinstance(orders, dict) and orders.get('error') == 429:
+                        wait_time = orders.get('retry_after', 20)
+                        logging.info(f"Waiting {wait_time}s for orders API (attempt {attempt+1}/{max_retries})")
+                        time.sleep(wait_time)
+                        orders_state = orders.get('state')
+                        continue
+                        
+                    # Успешное завершение
+                    break
+                
+                # Если после всех попыток всё равно ошибка
+                if isinstance(orders, dict) and orders.get('error') == 429:
+                    return pd.DataFrame(), "429_error"
+                
+                # Получение расходов на рекламу
+                ad_stats = None
+                # ad_state = None
+                max_retries = 3
+                for attempt in range(max_retries):
+                    ad_stats = get_expenses_per_nm(HEADERS, date_from)
+                    
+                    if isinstance(ad_stats, dict) and ad_stats.get('error') == 429:
+                        wait_time = 30
+                        logging.info(f"Waiting {wait_time}s for ads API (attempt {attempt+1}/{max_retries})")
+                        time.sleep(wait_time)
+                        continue
+                        
+                    break
+                
+                if isinstance(ad_stats, dict) and ad_stats.get('error') == 429:
+                    return pd.DataFrame(), "429_error"
                 metrics_df = calculate_metrics(
-                    orders, ad_stats_df, sheet_id)
+                    orders, ad_stats, sheet_id)
 
                 if not metrics_df.empty:
                     update_google_sheet_multi(
@@ -474,7 +512,6 @@ def generate_summary(df):
         return "Не удалось сформировать сводку"
 
 def generate_report(sheet_user: str, sheet_name: str, config_url: str, date_from=None, date_to=None) -> tuple:
-    """Генерирует отчёт по указанному sheet_name из конфигурации"""
     if not date_from:
         date_from = datetime.now().replace(hour=0, minute=0, second=0,
                                            microsecond=0).strftime('%Y-%m-%dT%H:%M:%S')
@@ -489,12 +526,49 @@ def generate_report(sheet_user: str, sheet_name: str, config_url: str, date_from
                     global WB_API_KEY, HEADERS
                     WB_API_KEY = wb_key
                     HEADERS = {'Authorization': WB_API_KEY}
-
-                    orders = get_dict_orders(HEADERS, date_from[:10])
-                    ad_stats_df = get_expenses_per_nm(HEADERS, date_from)
+                    
+                    # Получение данных с возобновляемой обработкой
+                    orders = None
+                    orders_state = None
+                    max_retries = 5
+                    cards = get_wb_product_cards(HEADERS)
+                    for attempt in range(max_retries):
+                        orders = get_dict_orders(HEADERS, date_from[:10], state=orders_state, cards=cards)
                         
-                    metrics_df = calculate_metrics_for_bot(
-                        orders, ad_stats_df, sheet_id)
+                        # Если получили состояние для повтора
+                        if isinstance(orders, dict) and orders.get('error') == 429:
+                            wait_time = orders.get('retry_after', 20)
+                            logging.info(f"Waiting {wait_time}s for orders API (attempt {attempt+1}/{max_retries})")
+                            time.sleep(wait_time)
+                            orders_state = orders.get('state')
+                            continue
+                            
+                        # Успешное завершение
+                        break
+                    
+                    # Если после всех попыток всё равно ошибка
+                    if isinstance(orders, dict) and orders.get('error') == 429:
+                        return pd.DataFrame(), "429_error"
+                    
+                    # Получение расходов на рекламу
+                    ad_stats = None
+                    ad_state = None
+                    for attempt in range(max_retries):
+                        ad_stats = get_expenses_per_nm(HEADERS, date_from)
+                        
+                        if isinstance(ad_stats, dict) and ad_stats.get('error') == 429:
+                            wait_time = ad_stats.get('retry_after', 20)
+                            logging.info(f"Waiting {wait_time}s for ads API (attempt {attempt+1}/{max_retries})")
+                            time.sleep(wait_time)
+                            continue
+                            
+                        break
+                    
+                    if isinstance(ad_stats, dict) and ad_stats.get('error') == 429:
+                        return pd.DataFrame(), "429_error"
+                    
+                    # Формирование отчета
+                    metrics_df = calculate_metrics_for_bot(orders, ad_stats, sheet_id)
                     summary = generate_summary(metrics_df)
 
                     return metrics_df[[
@@ -504,10 +578,9 @@ def generate_report(sheet_user: str, sheet_name: str, config_url: str, date_from
                         'Прибыль'
                     ]], summary
 
-        print(f"Не найден личный кабинет {sheet_name} в конфигурации.")
         return pd.DataFrame(), ""
     except Exception as e:
-        print(f"Ошибка генерации отчета: {e}")
+        logging.error(f"Report generation error: {e}")
         return pd.DataFrame(), ""
 
 if __name__ == "__main__":

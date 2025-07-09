@@ -2,7 +2,7 @@ import requests
 import json
 from datetime import datetime, timedelta
 import time
-
+import logging
 
 def get_wb_grouped_stats(target_date, headers):
     """
@@ -150,124 +150,95 @@ def get_wb_product_cards(headers):
     print(f"Получено карточек: {len(all_cards)}")
     return all_cards
 
-
-def get_orders_statistics(headers, nm_ids, date_from=None, date_to=None):
-    """
-    Получает статистику по заказам для списка артикулов
-
-    :param api_key: API-ключ авторизации
-    :param nm_ids: Список nmID (артикулов WB)
-    :param date_from: Начало периода в формате 'YYYY-MM-DD' (по умолчанию - 7 дней назад)
-    :param date_to: Конец периода в формате 'YYYY-MM-DD' (по умолчанию - сегодня)
-    :return: Словарь с статистикой в формате {nmID: {'ordersCount': X, 'ordersSumRub': Y}}
-    """
-    # Конфигурация запроса
+def get_orders_statistics(headers, nm_ids, date_from=None, date_to=None, state=None):
+    """Возвращает статистику с возможностью возобновления обработки"""
     API_URL = "https://seller-analytics-api.wildberries.ru/api/v2/nm-report/detail/history"
+    
+    # Инициализация состояния
+    if state is None:
+        state = {
+            'chunks': [nm_ids[i:i + 20] for i in range(0, len(nm_ids), 20)],
+            'all_stats': {},
+            'current_chunk': 0,
+            'retry_count': 0
+        }
+    
+    # Обрабатываем чанки по очереди
+    while state['current_chunk'] < len(state['chunks']):
+        chunk = state['chunks'][state['current_chunk']]
+        payload = {
+            "nmIDs": chunk,
+            "period": {"begin": date_from, "end": date_to},
+            "timezone": "Europe/Moscow",
+            "aggregationLevel": "day"
+        }
 
-    # Рассчет дат по умолчанию
-    if date_to is None:
-        date_to = datetime.now().strftime("%Y-%m-%d")
-    if date_from is None:
-        date_from = (datetime.now()).strftime("%Y-%m-%d")
-
-    # Разделяем артикулы на группы по 20 (ограничение API)
-    chunks = [nm_ids[i:i + 20] for i in range(0, len(nm_ids), 20)]
-    all_stats = {}
-    # responses_count = 0
-    try:
-        for chunk in chunks:
-            # Формирование тела запроса
-            payload = {
-                "nmIDs": chunk,
-                "period": {
-                    "begin": date_from,
-                    "end": date_to
-                },
-                "timezone": "Europe/Moscow",
-                "aggregationLevel": "day"
-            }
-
-            # Отправка запроса
+        try:
             response = requests.post(
                 API_URL,
                 json=payload,
-                headers=headers
+                headers=headers,
+                timeout=30
             )
 
-            # Обработка ответа
             if response.status_code == 200:
                 data = response.json()
-
-                if data.get("error"):
-                    print(
-                        f"Ошибка в ответе API: {data.get('errorText', 'Неизвестная ошибка')}")
-                    continue
-
-                # Обработка данных по каждому артикулу
                 for item in data.get("data", []):
                     nm_id = item["nmID"]
                     orders_count = 0
                     orders_sum = 0.0
-                    addToCartConversion = 0.0
-                    cartToOrderConversion = 0.0
-
-                    # Суммируем показатели за все дни периода
                     for day in item.get("history", []):
                         orders_count += day.get("ordersCount", 0)
                         orders_sum += day.get("ordersSumRub", 0)
-                        addToCartConversion += day.get("addToCartConversion", 0)
-                        cartToOrderConversion += day.get("cartToOrderConversion", 0)
-
-
-                    all_stats[nm_id] = {
+                    state['all_stats'][nm_id] = {
                         "ordersCount": orders_count,
-                        "ordersSumRub": orders_sum,
-                        "addToCartConversion": addToCartConversion,
-                        "cartToOrderConversion": cartToOrderConversion
+                        "ordersSumRub": orders_sum
                     }
-
-                # Добавляем артикулы без данных
-                for nm_id in chunk:
-                    if nm_id not in all_stats:
-                        all_stats[nm_id] = {
-                            "ordersCount": 0,
-                            "ordersSumRub": 0.0,
-                            "addToCartConversion": 0.0,
-                            "cartToOrderConversion": 0.0
-                        }
+                
+                # Переходим к следующему чанку
+                state['current_chunk'] += 1
+                state['retry_count'] = 0  # Сбрасываем счетчик повторов
 
             elif response.status_code == 429:
                 retry_after = int(response.headers.get('Retry-After', 20))
-                print(f"Превышен лимит запросов. Пауза {retry_after} сек.")
-                time.sleep(retry_after)
-                # Повторяем запрос для текущего чанка
-                chunks.append(chunk)
+                logging.warning(f"429 error. Retry after: {retry_after}")
+                
+                # Увеличиваем счетчик повторов
+                state['retry_count'] += 1
+                if state['retry_count'] > 5:
+                    logging.error("Max retries exceeded")
+                    return {
+                        'error': 429,
+                        'retry_after': retry_after,
+                        'state': state
+                    }
+                
+                # Возвращаем текущее состояние для возобновления
+                return {
+                    'error': 429,
+                    'retry_after': retry_after,
+                    'state': state
+                }
+
             else:
-                print(f"Ошибка {response.status_code}: {response.text}")
+                logging.error(f"Error {response.status_code}: {response.text}")
+                # Переходим к следующему чанку при других ошибках
+                state['current_chunk'] += 1
+                state['retry_count'] = 0
 
-            # # Соблюдаем лимит 3 запроса в минуту
-            # responses_count += 1
-            # if responses_count == 3:
-            #     time.sleep(60)  # 60 сек / 3 запроса
-            #     responses_count = 0
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request error: {e}")
+            state['current_chunk'] += 1
+            state['retry_count'] = 0
 
-    except requests.exceptions.RequestException as e:
-        print(f"Ошибка соединения: {e}")
-    except json.JSONDecodeError:
-        print("Ошибка обработки JSON-ответа")
+    return state['all_stats']
 
-    return all_stats
-
-
-def get_dict_orders(headers, date):
-    cards = get_wb_product_cards(headers)
+def get_dict_orders(headers, date, state=None, cards=None):
+    """Возвращает статистику по заказам с возможностью возобновления"""
+    if not cards:
+        cards = get_wb_product_cards(headers)
+    if not cards:
+        return {}
+    
     nm_ids = [product['nmID'] for product in cards]
-    stats = get_orders_statistics(headers, nm_ids, date, date)
-
-    # stats[nmId] = {ordersCount: ... , ordersSumRub: ...}
-    return stats
-
-
-
-
-# get_wb_grouped_stats('2025-07-04', )
+    return get_orders_statistics(headers, nm_ids, date, date, state)

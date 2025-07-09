@@ -588,7 +588,6 @@ async def process_report_callback(callback: types.CallbackQuery):
     if is_admin(user_id):
         return
     
-    # Проверяем активные запросы
     if active_requests.get(user_id):
         await callback.answer("Дождитесь генерации прошлого отчёта", show_alert=True)
         return
@@ -596,55 +595,59 @@ async def process_report_callback(callback: types.CallbackQuery):
     parts = callback.data.split(":")
     username = parts[1]
     cabinet = parts[2]
-    
-    # Помечаем запрос как активный
     active_requests[user_id] = True
     
-    wait_message = await bot.send_message(user_id, "🔄 Ожидайте 30 сек, идёт формирование отчета...", reply_markup=main_menu_keyboard)
+    wait_message = await bot.send_message(user_id, "🔄 Формирую отчёт, это займёт некоторое время...", reply_markup=main_menu_keyboard)
+    
     try:
         if cabinet == "all":
             cabinets = await cache.get_user_cabinets(username)
             if not cabinets:
                 await bot.send_message(user_id, f"⚠️ У пользователя {username} нет доступных личных кабинетов.")
-                await show_main_menu(callback.message.chat.id)
                 return
 
             summ = {'costs': 0.0, 'profit': 0.0}
             for cabinet_name in cabinets:
-                df, summary = await run_in_thread(generate_report, username, cabinet_name, CONFIG_URL)
+                # Запускаем в отдельном потоке с обработкой возобновления
+                df, summary = await run_in_thread(
+                    generate_report_with_resume, 
+                    username, 
+                    cabinet_name, 
+                    CONFIG_URL
+                )
                 
-                # Обработка ошибки 429
                 if summary == "429_error":
-                    await bot.send_message(user_id, "Превышен лимит на запросы, попробуйте позднее")
+                    await bot.send_message(user_id, "⚠️ Превышен лимит запросов. Попробуйте позже")
                     return
                     
                 if df is not None and not df.empty:
                     parts = summary.split(':')
                     summ["costs"] += float(parts[1])
                     summ["profit"] += float(parts[2])
-                else:
-                    await bot.send_message(user_id, f"Нет данных по {cabinet_name}.")
 
             await bot.send_message(user_id, 
-                f"<pre>Суммарный отчет по всем кабинетам:\nСумма затрат: {round(summ['costs'], 2)}\nСумма прибыли: {round(summ['profit'], 2)}</pre>", 
-                parse_mode="HTML")
+                f"<b>Суммарный отчёт по всем кабинетам:</b>\n"
+                f"• Сумма затрат: {round(summ['costs'], 2)} руб\n"
+                f"• Сумма прибыли: {round(summ['profit'], 2)} руб",
+                parse_mode="HTML"
+            )
         else:
-            df, summary = await run_in_thread(generate_report, username, cabinet, CONFIG_URL)
+            df, summary = await run_in_thread(
+                generate_report_with_resume, 
+                username, 
+                cabinet, 
+                CONFIG_URL
+            )
             
-            # Обработка ошибки 429
             if summary == "429_error":
-                await bot.send_message(user_id, "Превышен лимит на запросы, попробуйте позднее")
+                await bot.send_message(user_id, "⚠️ Превышен лимит запросов. Попробуйте позже")
                 return
                 
             if df is None or df.empty:
-                await bot.send_message(user_id, f"Нет данных по {cabinet}.")
+                await bot.send_message(user_id, f"ℹ️ Нет данных по {cabinet}")
             else:
                 await send_report_as_file(user_id, username, cabinet, df, summary)
-    except Exception as e:
-        logging.error(f"Ошибка формирования отчета: {e}")
-        await bot.send_message(user_id, "❌ Произошла ошибка при формировании отчета")
     finally:
-        # Снимаем блокировку
         active_requests.pop(user_id, None)
         try:
             await bot.delete_message(user_id, wait_message.message_id)
@@ -652,6 +655,27 @@ async def process_report_callback(callback: types.CallbackQuery):
             pass
 
     await show_main_menu(callback.message.chat.id)
+
+# Новая функция для возобновления обработки
+def generate_report_with_resume(username, cabinet, config_url):
+    """Генерирует отчет с возможностью возобновления после 429 ошибки"""
+    state = None
+    max_attempts = 3
+    
+    for attempt in range(max_attempts):
+        result = generate_report(username, cabinet, config_url)
+        
+        # Если получили состояние для возобновления
+        if result[1] == "resume_state":
+            state = result[2]
+            wait_time = result[3]
+            time.sleep(wait_time)
+            continue
+            
+        return result
+        
+    return None, "429_error"
+
 
 def add_articles_to_sheet(worksheet, articles):
     """Добавляет артикулы и баркоды в лист таблицы с сортировкой"""

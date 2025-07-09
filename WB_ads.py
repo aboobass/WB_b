@@ -4,48 +4,48 @@ from time import sleep
 import json
 from datetime import datetime, timedelta
 from collections import defaultdict
+import logging
 
 API_KEY = "eyJhbGciOiJFUzI1NiIsImtpZCI6IjIwMjUwNTIwdjEiLCJ0eXAiOiJKV1QifQ.eyJlbnQiOjEsImV4cCI6MTc2NjIxMzM0MiwiaWQiOiIwMTk3OGVhYy0zZWVhLTc5MTUtOGY5OS02ZjA5MmVjZmQyMWIiLCJpaWQiOjkwNTkxNzg2LCJvaWQiOjEwNDQxNTAsInMiOjE2MTI2LCJzaWQiOiJhODA2NWM4Mi0wODg3LTQxZjktODlmZS02OWRlZjVmYTAzM2YiLCJ0IjpmYWxzZSwidWlkIjo5MDU5MTc4Nn0.2tY1tLfenFOOJU_IO0C_JVMe_tucFvWekVCV5Z0IskfK9ESMo7yCDZYs7fH7HRA6Hv0-Ls_9bzv4d_Rx2lQ6fQ"
 HEADERS = {"Authorization": API_KEY}
 
 def safe_request(HEADERS, url, method='GET', json_data=None, params=None, max_retries=3):
-    """Безопасный запрос с обработкой ошибок и повторами"""
     for attempt in range(max_retries):
         try:
             if method == 'GET':
                 response = requests.get(
-                    url, headers=HEADERS, params=params, json=json_data)
+                    url, headers=HEADERS, params=params, json=json_data, timeout=30)
             elif method == 'POST':
                 response = requests.post(
-                    url, headers=HEADERS, json=json_data, params=params)
+                    url, headers=HEADERS, json=json_data, params=params, timeout=30)
 
-            if response.status_code == 400 and "no companies with correct intervals" in response.text:
-                return None  # Молча завершить, не печатая и не повторяя
-            
-            # Обработка 429 Too Many Requests
+            # Обработка 429
             if response.status_code == 429:
-                return "429_error"
-              
-            # Обработка 204 No Content
+                retry_after = int(response.headers.get('Retry-After', 20))
+                logging.warning(f"429 error. Retry after: {retry_after}")
+                return {
+                    'error': 429,
+                    'retry_after': retry_after
+                }
+                
+            # Остальная обработка как раньше...
+            if response.status_code == 400 and "no companies with correct intervals" in response.text:
+                return None
             if response.status_code == 204:
                 return None
-
-            # Проверка на успешный статус
             if 200 <= response.status_code < 300:
                 try:
                     return response.json()
                 except json.JSONDecodeError:
                     return None
-            else:
-                print(
-                    f"Ошибка сервера ({response.status_code}): {response.text[:500]}")
 
         except requests.exceptions.RequestException as e:
-            print(f"Ошибка запроса ({attempt+1}/{max_retries}): {e}")
-            sleep(2)
-
-    print(f"Не удалось выполнить запрос к {url}")
+            logging.error(f"Request error ({attempt+1}/{max_retries}): {e}")
+            time.sleep(2)
+    
+    logging.error(f"Failed to request: {url}")
     return None
+
 
 def get_promotion_campaigns(HEADERS):
     """Получение рекламных компаний с детализацией"""
@@ -108,7 +108,7 @@ def get_promotion_campaigns(HEADERS):
     return result
 
 def get_expenses_per_nm(HEADERS, date=None):
-    """Возвращает словарь с затратами на каждый артикул {nmId: сумма}"""
+    """Возвращает расходы с возможностью возобновления обработки"""
     # Получаем список кампаний с nmIds
     campaigns = get_promotion_campaigns(HEADERS)
     if not campaigns:
@@ -121,11 +121,12 @@ def get_expenses_per_nm(HEADERS, date=None):
         date = date[:10]
 
     # Формируем запросы по 100 кампаний
-    nm_expenses = defaultdict(dict )
+    nm_expenses = defaultdict(dict)
     auto_ctr = 0.0
     auction_ctr = 0.0
-            
-    for i in range(0, len(campaigns), 100):
+    
+    i = 0
+    while i < len(campaigns):
         chunk = campaigns[i:i+100]
         request_body = []
 
@@ -140,10 +141,18 @@ def get_expenses_per_nm(HEADERS, date=None):
         response = safe_request(HEADERS, fullstats_url,
                                 'POST', json_data=request_body)
 
+        # Обработка 429 ошибки
+        if isinstance(response, dict) and response.get('error') == 429:
+            retry_after = response.get('retry_after', 20)
+            logging.warning(f"Ads API 429 error. Retry after: {retry_after}")
+            sleep(retry_after)
+            continue  # Повторяем с теми же данными
+            
         if not response or not isinstance(response, list):
+            i += len(chunk)
             continue
 
-        # Обрабатываем ответ для каждой кампании в группе
+        # Обрабатываем ответ
         for campaign_data in response:
             advert_id = campaign_data.get('advertId')
             total_expense = campaign_data.get('sum', 0)
@@ -179,4 +188,6 @@ def get_expenses_per_nm(HEADERS, date=None):
                 nm_expenses[nmId]['auto_ctr'] = nm_expenses[nmId].get('auto_ctr', 0) + auto_ctr_per_nm
                 nm_expenses[nmId]['auction_ctr'] = nm_expenses[nmId].get('auction_ctr', 0) + auction_ctr_per_nm
             # print(nm_expenses)
+        i += len(chunk)
+
     return dict(nm_expenses)
