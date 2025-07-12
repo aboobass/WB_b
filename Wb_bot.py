@@ -131,7 +131,7 @@ def calculate_metrics(orders, ad_stats_df, client_sheet_id=None):
                 result.at[index, 'net_profit'] = (result.at[index, 'gross_profit'] -
                                                   result.at[index, 'costs']).round(2)
             else:
-                print(index, result.at[index, 'gross_profit'], result.at[index, 'costs'])
+                # print(index, result.at[index, 'gross_profit'], result.at[index, 'costs'])
                 result.at[index, 'net_profit'] = None
             if pd.notna(result.at[index, 'costs']) and pd.notna(result.at[index, 'ordersSumRub']):
                 result.at[index, 'drr'] = (result.at[index, 'costs'] /
@@ -282,6 +282,12 @@ def update_google_sheet_multi(sheet_id, sheet_name, data_df, spreadsheet):
                 "wrapStrategy": "WRAP"
             }
             worksheet.format(f'A4:{last_col_letter}4', header_format)
+            # Сброс только самых важных параметров
+            worksheet.format("I4", {
+                "backgroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0},  # белый фон
+                "textFormat": {"bold": False},  # обычный шрифт
+                "borders": {}  # без границ
+            })
             worksheet.freeze(4)
 
         # Подготовка данных
@@ -324,13 +330,13 @@ def update_google_sheet_multi(sheet_id, sheet_name, data_df, spreadsheet):
         total_row = [''] * num_columns
         total_row[0] = 'Итого'
         if 'Количество заказов за период' in col_index_map:
-            total_row[col_index_map['Количество заказов за период']] = total_orders
+            total_row[col_index_map['Количество заказов за период']] = int(total_orders)
         if 'Сумма заказов' in col_index_map:
-            total_row[col_index_map['Сумма заказов']] = total_revenue
+            total_row[col_index_map['Сумма заказов']] = float(total_revenue)
         if 'Расходы на рекламу по артикулу' in col_index_map:
-            total_row[col_index_map['Расходы на рекламу по артикулу']] = total_costs
+            total_row[col_index_map['Расходы на рекламу по артикулу']] = float(total_costs)
         if 'Чистая прибыль за период по артикулу' in col_index_map:
-            total_row[col_index_map['Чистая прибыль за период по артикулу']] = total_net_profit
+            total_row[col_index_map['Чистая прибыль за период по артикулу']] = float(total_net_profit)
         
         all_values = values + [total_row]
 
@@ -481,7 +487,7 @@ def calculate_metrics_for_bot(orders, ad_stats_df, client_sheet_id=None):
 
 
         for index, row in result.iterrows():
-            if pd.notna(result.at[index, 'gross_profit']):
+            if pd.notna(result.at[index, 'costs']) and pd.notna(result.at[index, 'gross_profit']):            
                 result.at[index, 'net_profit'] = (result.at[index, 'gross_profit'] -
                                                   result.at[index, 'costs']).round(2)
             else:
