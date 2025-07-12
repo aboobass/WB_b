@@ -62,7 +62,7 @@ def get_client_data(sheet_id):
     try:
         client = gspread.authorize(CREDS)
         spreadsheet = client.open_by_key(sheet_id)
-        worksheet = spreadsheet.get_worksheet(0)
+        worksheet = spreadsheet.worksheet("Маржа")
 
         # Получаем все данные за один запрос
         records = worksheet.get_all_records(head=3,
@@ -78,7 +78,7 @@ def get_client_data(sheet_id):
                 data_dict[nmId] = {
                     'vendorCode': row.get('Артикул продавца', ''),
                     'profit': row.get('Прибыль с ед. товара', ''),
-                    'redemption': row.get('Выкупаемость (%)', )
+                    'redemption': row.get('Выкупаемость (%)', '')
                 }
         return data_dict
     except Exception as e:
@@ -122,22 +122,22 @@ def calculate_metrics(orders, ad_stats_df, client_sheet_id=None):
         
         result = []
         for nmId, values in orders.items():
+            # print(nmId, values)
             if values['ordersCount'] != 0:
-                result.append([nmId, client_data[nmId]['vendorCode'], values['ordersCount'], values['costs'], values['gross_profit'], values['ordersSumRub'], values['views'], values['auto_ctr'], values['auction_ctr'], values['addToCartConversion'], values['cartToOrderConversion']])
-        result = pd.DataFrame(result, columns=['nmId', 'vendorCode', 'ordersCount', 'costs', 'gross_profit', 'ordersSumRub', 'views', 'auto_ctr', 'auction_ctr', 'addToCartConversion', 'cartToOrderConversion'])
-
+                result.append([nmId, client_data[nmId]['vendorCode'], values['ordersCount'], values['costs'], values['gross_profit'], values['ordersSumRub'], ' ', values['views'], values['auto_ctr'], values['auction_ctr'], values.get('addToCartConversion', 0), values.get('cartToOrderConversion', 0)])
+        result = pd.DataFrame(result, columns=['nmId', 'vendorCode', 'ordersCount', 'costs', 'gross_profit', 'ordersSumRub', 'void', 'views', 'auto_ctr', 'auction_ctr', 'addToCartConversion', 'cartToOrderConversion'])
         for index, row in result.iterrows():
-            if result.at[index, 'gross_profit']:
+            if not pd.isna(result.at[index, 'costs']) and not pd.isna(result.at[index, 'gross_profit']):
                 result.at[index, 'net_profit'] = (result.at[index, 'gross_profit'] -
                                                   result.at[index, 'costs']).round(2)
             else:
+                print(index, result.at[index, 'gross_profit'], result.at[index, 'costs'])
                 result.at[index, 'net_profit'] = None
-            if result.at[index, 'costs'] and result.at[index, 'ordersSumRub']:
+            if not pd.isna(result.at[index, 'costs']) and not pd.isna(result.at[index, 'ordersSumRub']):
                 result.at[index, 'drr'] = (result.at[index, 'costs'] /
                                            result.at[index, 'ordersSumRub'] * 100).round(2)
             else:
                 result.at[index, 'drr'] = 0
-
         result = result.rename(columns={
             'nmId': 'Артикул WB',
             'vendorCode': 'Артикул продавца',
@@ -146,6 +146,7 @@ def calculate_metrics(orders, ad_stats_df, client_sheet_id=None):
             'ordersSumRub': 'Сумма заказов',
             'drr': 'ДРР',
             'net_profit': 'Чистая прибыль за период по артикулу',
+            'void': ' ',
             'views': 'Показы',
             'auto_ctr': 'CTR (Автоматические компании)',
             'auction_ctr': 'CTR (Аукционы)',
@@ -163,7 +164,7 @@ def calculate_metrics(orders, ad_stats_df, client_sheet_id=None):
 
         return result[[
             'Дата', 'Артикул WB', 'Артикул продавца', 'Количество заказов за период',
-            'Расходы на рекламу по артикулу', 'Сумма заказов', 'ДРР', 'Чистая прибыль за период по артикулу', 'Показы', 
+            'Расходы на рекламу по артикулу', 'Сумма заказов', 'ДРР', 'Чистая прибыль за период по артикулу', ' ', 'Показы', 
             'CTR (Автоматические компании)', 'CTR (Аукционы)', 'Конверсия в корзину', 'Конверсия в заказ', 
         ]]
     except Exception as e:
@@ -266,7 +267,11 @@ def update_google_sheet_multi(sheet_id, sheet_name, data_df, spreadsheet):
             
             # Отступ и заголовки столбцов
             worksheet.insert_row([""], index=3)
-            worksheet.insert_row(list(data_df.columns), index=4)
+            lst_headers = list(data_df.columns)
+            # print(lst_headers)
+            # lst_headers.insert(8, ' ')
+            # print(lst_headers)
+            worksheet.insert_row(lst_headers, index=4)
             
             # Форматирование заголовков
             header_format = {
@@ -291,19 +296,28 @@ def update_google_sheet_multi(sheet_id, sheet_name, data_df, spreadsheet):
                     converted_row.append(item)
             values.append(converted_row)
 
-        # Расчет итогов
+        # Расчет итогов - ИСПРАВЛЕННЫЙ БЛОК
         total_orders = total_revenue = total_costs = total_net_profit = 0
         col_index_map = {col: idx for idx, col in enumerate(data_df.columns)}
         
         if 'Количество заказов за период' in data_df.columns:
-            total_orders = int(data_df['Количество заказов за период'].sum())
+            # Используем sum() с skipna=True для числовых столбцов
+            total_orders = int(data_df['Количество заказов за период'].sum(skipna=True))
+            
         if 'Сумма заказов' in data_df.columns:
-            total_revenue = float(data_df['Сумма заказов'].sum())
+            total_revenue = float(data_df['Сумма заказов'].sum(skipna=True))
+            
         if 'Расходы на рекламу по артикулу' in data_df.columns:
-            total_costs = sum([float(str(val).replace(',', '.')) if isinstance(val, str) else val 
-                              for val in data_df['Расходы на рекламу по артикулу']])
+            # Обрабатываем только числовые значения, игнорируем строки
+            total_costs = data_df['Расходы на рекламу по артикулу'].apply(
+                lambda x: float(str(x).replace(',', '.')) if isinstance(x, (int, float, str)) and str(x).replace(',', '').replace('.', '').isdigit() else 0
+            ).sum()
+            
         if 'Чистая прибыль за период по артикулу' in data_df.columns:
-            total_net_profit = sum(data_df['Чистая прибыль за период по артикулу'])
+            # Обрабатываем только числовые значения, игнорируем строки
+            total_net_profit = data_df['Чистая прибыль за период по артикулу'].apply(
+                lambda x: x if isinstance(x, (int, float)) else 0
+            ).sum()
         
         # Формирование итоговой строки
         total_row = [''] * num_columns
@@ -323,7 +337,6 @@ def update_google_sheet_multi(sheet_id, sheet_name, data_df, spreadsheet):
         if is_new_sheet:
             start_row = 5
         else:
-            # ВАЖНО: Используем только строки с данными (игнорируем пустые строки)
             all_values_in_sheet = worksheet.get_all_values()
             start_row = len(all_values_in_sheet) + 1
         
@@ -337,11 +350,10 @@ def update_google_sheet_multi(sheet_id, sheet_name, data_df, spreadsheet):
         update_range = f"A{start_row}:{last_col_letter}{start_row + len(all_values) - 1}"
         worksheet.update(range_name=update_range, values=all_values)
 
-        # ИСПРАВЛЕНИЕ: Правильный расчет позиции итоговой строки
+        # Форматирование строки "Итого"
         total_row_position = start_row + len(values)
         total_row_range = f"A{total_row_position}:{last_col_letter}{total_row_position}"
         
-        # Применяем форматирование ТОЛЬКО к строке "Итого"
         worksheet.format(total_row_range, {
             "textFormat": {"bold": True},
             "backgroundColor": {"red": 0.95, "green": 0.95, "blue": 0.95}
@@ -350,6 +362,8 @@ def update_google_sheet_multi(sheet_id, sheet_name, data_df, spreadsheet):
         print(f"[{sheet_name}] Добавлено строк: {len(values)}")
     except Exception as e:
         print(f"[{sheet_name}] Ошибка при обновлении Google Таблицы: {e}")
+        import traceback
+        traceback.print_exc()
 
 def main_from_config(config_url: str, date_from=None, date_to=None):
     if not date_from:

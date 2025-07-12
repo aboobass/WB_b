@@ -187,12 +187,18 @@ def get_orders_statistics(headers, nm_ids, date_from=None, date_to=None, state=N
                     nm_id = item["nmID"]
                     orders_count = 0
                     orders_sum = 0.0
+                    addToCartConversion = 0.0
+                    cartToOrderConversion = 0.0
                     for day in item.get("history", []):
                         orders_count += day.get("ordersCount", 0)
                         orders_sum += day.get("ordersSumRub", 0)
+                        addToCartConversion += day.get("addToCartConversion", 0)
+                        cartToOrderConversion += day.get("cartToOrderConversion", 0)
                     state['all_stats'][nm_id] = {
                         "ordersCount": orders_count,
-                        "ordersSumRub": orders_sum
+                        "ordersSumRub": orders_sum,
+                        "addToCartConversion": addToCartConversion,
+                        "cartToOrderConversion": cartToOrderConversion
                     }
                 
                 # Переходим к следующему чанку

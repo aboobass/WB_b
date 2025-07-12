@@ -24,6 +24,7 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 import time
 
+
 from config import API_TOKEN, CONFIG_URL, ADMIN_IDS, CREDS, CONFIG_SHEET_ID
 from Wb_bot import get_available_users_from_config, get_user_cabinets, generate_report, main_from_config
 from WB_orders import get_wb_product_cards
@@ -141,7 +142,7 @@ def validate_cabinet_name(name: str) -> bool:
     return 2 <= len(name.strip()) <= 50
 
 def validate_wb_api_key(api_key: str) -> bool:
-    url_stat = "https://statistics-api.wildberries.ru/ping"
+    url_stat = "https://seller-analytics-api.wildberries.ru/ping"
     url_ads = "https://advert-api.wildberries.ru/ping"
     headers = {"Authorization": api_key}
 
@@ -254,7 +255,7 @@ async def show_admin_menu(chat_id, message_text="Выберите действи
 # Функция для запуска блокирующих операций в отдельном потоке
 def run_in_thread(func, *args):
     loop = asyncio.get_running_loop()
-    with ThreadPoolExecutor(100) as pool:
+    with ThreadPoolExecutor() as pool:
         return loop.run_in_executor(pool, func, *args)
 
 @dp.callback_query_handler(lambda c: c.data == "subscribe")
@@ -305,7 +306,7 @@ async def start_handler(message: types.Message):
     instruction_photo = InputFile("instruction.jpg")
     await bot.send_photo(message.chat.id, instruction_photo)
     await message.answer(
-        "👋 Добро пожаловать! Для регистрации введите ваш WB API ключ (статистика и продвижение):",
+        "👋 Добро пожаловать! Для регистрации введите ваш WB API ключ (аналитика и продвижение):",
         reply_markup=get_cancel_keyboard()
     )
     await UserRegistrationStates.WAITING_API_KEY.set()
@@ -366,7 +367,7 @@ async def add_cabinet_handler(message: types.Message, state: FSMContext):
 
     instruction_photo = InputFile("instruction.jpg")
     await bot.send_photo(message.chat.id, instruction_photo)
-    await message.answer("Введите WB API ключ (статистика и продвижение) для нового кабинета:", reply_markup=get_cancel_keyboard())
+    await message.answer("Введите WB API ключ (аналитика и продвижение) для нового кабинета:", reply_markup=get_cancel_keyboard())
     async with state.proxy() as data:
         data['username'] = username
     await AddCabinetStates.WAITING_API_KEY.set()
@@ -436,6 +437,7 @@ async def process_registration_api_key(message: types.Message, state: FSMContext
     await UserRegistrationStates.next()
     await message.answer("✅ Ключ принят! Теперь введите название для вашего личного кабинета:", reply_markup=get_cancel_keyboard())
 
+
 @dp.message_handler(state=UserRegistrationStates.WAITING_CABINET_NAME)
 async def process_registration_cabinet_name(message: types.Message, state: FSMContext):
     cabinet_name = message.text.strip()
@@ -449,13 +451,14 @@ async def process_registration_cabinet_name(message: types.Message, state: FSMCo
     # Создаем уникальное имя пользователя
     username = f"user_{message.from_user.id}"
 
-    # Создаем таблицу и настраиваем доступ
-    spreadsheet_info = await run_in_thread(create_google_spreadsheet, f"Отчеты WB {message.from_user.id}", api_key)
+    # Получаем свободную таблицу из пула
+    spreadsheet_info = await run_in_thread(get_available_spreadsheet, username)
     if not spreadsheet_info:
-        await message.answer("❌ Ошибка создания таблицы. Попробуйте позже.")
+        await message.answer("❌ Нет доступных таблиц. Обратитесь к администратору.")
         await state.finish()
         return
 
+    # Предоставляем доступ
     await run_in_thread(grant_spreadsheet_access, spreadsheet_info['id'])
 
     # Добавляем пользователя в конфигурацию
@@ -472,19 +475,24 @@ async def process_registration_cabinet_name(message: types.Message, state: FSMCo
     await cache.bind_user(message.from_user.id, username)
     await cache.save_data()
 
-    # Открываем таблицу и добавляем первый лист
+    # Инициализируем таблицу
     spreadsheet = gc.open_by_url(spreadsheet_info['url'])
-    await run_in_thread(add_cabinet_sheet, spreadsheet, cabinet_name, api_key)
+    success = await run_in_thread(add_cabinet_sheet, spreadsheet, cabinet_name, api_key)
+    
+    if success:
+        await message.answer(
+            "✅ Регистрация успешно завершена!\n"
+            f"• Ваш аккаунт: {username}\n"
+            f"• Ваш кабинет: {cabinet_name}\n"
+            f"• Ваша таблица: {spreadsheet_info['url']}\n\n"
+            "Теперь вы можете добавлять до 7 личных кабинетов"
+        )
+    else:
+        await message.answer("❌ Ошибка при инициализации таблицы")
 
     await state.finish()
-    await message.answer(
-        "✅ Регистрация успешно завершена!\n"
-        f"• Ваш аккаунт: {username}\n"
-        f"• Ваш кабинет: {cabinet_name}\n"
-        f"• Ваша таблица: {spreadsheet_info['url']}\n\n"
-        "Теперь вы можете добавлять до 7 личных кабинетов"
-    )
     await show_main_menu(message.chat.id)
+
 
 @dp.callback_query_handler(lambda c: c.data == "get_report")
 async def get_report_callback(callback: types.CallbackQuery):
@@ -512,11 +520,14 @@ async def get_report_callback(callback: types.CallbackQuery):
             return
 
         keyboard = InlineKeyboardMarkup(row_width=1)
-        keyboard.add(InlineKeyboardButton(
-            text="Все", callback_data=f"get_report:{username}:all"))
+
         for cabinet in cabinets:
             keyboard.add(InlineKeyboardButton(
                 text=cabinet, callback_data=f"get_report:{username}:{cabinet}"))
+        
+        keyboard.add(InlineKeyboardButton(
+            text="Все", callback_data=f"get_report:{username}:all"))
+
         keyboard.add(InlineKeyboardButton(
             "🔙 Назад", callback_data="back_to_main"))
         
@@ -715,7 +726,6 @@ def sort_sheet(worksheet):
 
         # Сортируем по столбцу A (кабинет) и столбцу B (артикул продавца)
         sorted_data = sorted(data, key=lambda x: (x[0], x[1], x[2]))
-        #####################################################################################################################################################
         # Обновляем весь лист
         worksheet.clear()
 
@@ -773,47 +783,33 @@ def get_wb_articles(api_key: str):
         logging.error(f"Ошибка получения данных с WB API: {e}")
         return []
 
-def create_google_spreadsheet(title: str, api_key: str) -> dict:
+def extract_spreadsheet_id(url: str) -> str:
+    """Извлекает ID таблицы из URL"""
+    parts = url.split('/')
+    for i, part in enumerate(parts):
+        if part == 'd' and i + 1 < len(parts):
+            return parts[i + 1]
+    return url
+
+
+def get_available_spreadsheet(username: str) -> dict:
+    """Возвращает свободную таблицу из пула и помечает ее как занятую"""
     try:
-        spreadsheet = gc.create(title)
-        worksheet = spreadsheet.get_worksheet(0)
-        worksheet.update_title("Маржа")
-        
-        # Форматирование и инструкции
-        instruction = "Заполните столбцы 'Прибыль с ед. товара' и 'Выкупаемость (%)'. После заполнения можете запросить отчёт."
-        worksheet.update(range_name='A1', values=[[instruction]])
-        
-        # Заголовки с серым фоном
-        headers = ["Личный кабинет", "Артикул WB", "Артикул продавца",
-                   "Прибыль с ед. товара", "Выкупаемость (%)"]
-        worksheet.append_row(headers, table_range='A3:E3')
-        
-        # Форматирование
-        worksheet.format("A1", {
-            "textFormat": {
-                "bold": True,
-                "fontSize": 14
-            },
-            "horizontalAlignment": "LEFT",
-            "wrapStrategy": "WRAP"
-        })
-        worksheet.merge_cells("A1:E1")
-        
-        # Серый цвет для заголовков (строка 3)
-        worksheet.format("A3:E3", {
-            "backgroundColor": {
-                "red": 0.9,
-                "green": 0.9,
-                "blue": 0.9
-            },
-            "textFormat": {
-                "bold": True
-            }
-        })
-        
-        return {'url': spreadsheet.url, 'id': spreadsheet.id}
+        # Открываем таблицу с пулом таблиц
+        pool_sheet = gc.open_by_key("1MZeib3KF9TDtH7S6ylfd4VzOLVA-tdcJfjF_HCJDHqY").sheet1
+        records = pool_sheet.get_all_values()
+        # print(records)
+        # Ищем первую свободную таблицу (где столбец C пустой)
+        for i, row in enumerate(records):
+            if i == 0: continue  # Пропускаем заголовки
+            if len(row) >= 3 and not row[2].strip():  # Столбец C пуст
+                url = row[1].strip()
+                # Помечаем таблицу как занятую
+                pool_sheet.update_cell(i + 1, 3, username)
+                return {'url': url, 'id': extract_spreadsheet_id(url)}
+        return None
     except Exception as e:
-        logging.error(f"Ошибка создания таблицы: {e}")
+        logging.error(f"Ошибка получения таблицы из пула: {e}")
         return None
 
 def grant_spreadsheet_access(spreadsheet_id: str, email=""):
@@ -827,34 +823,91 @@ def add_user_to_config(username: str, api_key: str, cabinet_name: str, spreadshe
     try:
         worksheet = gc.open_by_key(CONFIG_SHEET_ID).sheet1
         worksheet.append_row([username, api_key, cabinet_name, spreadsheet_url])
-        cache.config_cache = None
+        cache.config_cache = None  # Сбрасываем кеш конфигурации
     except Exception as e:
         logging.error(f"Ошибка добавления пользователя в конфиг: {e}")
 
 def add_cabinet_sheet(spreadsheet, cabinet_name: str, api_key: str):
     try:
-        worksheet = spreadsheet.get_worksheet(0)
+        # Пытаемся получить лист "Маржа"
+        try:
+            worksheet = spreadsheet.worksheet("Маржа")
+        except gspread.exceptions.WorksheetNotFound:
+            # worksheet = spreadsheet.add_worksheet(title="Маржа", rows=1000, cols=5)
+            worksheet = spreadsheet.get_worksheet(0)
+            worksheet.update_title("Маржа")
+            
+            instruction = "Заполните столбцы 'Прибыль с ед. товара' и 'Выкупаемость (%)'. После заполнения можете запросить отчёт."
+            worksheet.update(range_name='A1', values=[[instruction]])
+            
+            # Заголовки с серым фоном
+            headers = ["Личный кабинет", "Артикул WB", "Артикул продавца",
+                    "Прибыль с ед. товара", "Выкупаемость (%)"]
+            worksheet.append_row(headers, table_range='A3:E3')
+            
+            # Форматирование
+            worksheet.format("A1", {
+                "textFormat": {
+                    "bold": True,
+                    "fontSize": 14
+                },
+                "horizontalAlignment": "LEFT",
+                "wrapStrategy": "WRAP"
+            })
+            worksheet.merge_cells("A1:E1")
+            
+            # Серый цвет для заголовков (строка 3)
+            worksheet.format("A3:E3", {
+                "backgroundColor": {
+                    "red": 0.9,
+                    "green": 0.9,
+                    "blue": 0.9
+                },
+                "textFormat": {
+                    "bold": True
+                }
+            })
+
+            # worksheet.freeze(rows=1)
+        
+        # Добавляем артикулы
         articles = get_wb_articles(api_key)
-        articles_with_cabinet = [(cabinet_name, nmId, supplierArticle)
-                                 for (nmId, supplierArticle) in articles]
-        add_articles_to_sheet(worksheet, articles_with_cabinet)
+        articles_with_cabinet = [
+            [cabinet_name, str(nmId), str(supplierArticle), "", ""]
+            for (nmId, supplierArticle) in articles
+        ]
+        
+        # Добавляем данные пачками
+        batch_size = 100
+        for i in range(0, len(articles_with_cabinet), batch_size):
+            batch = articles_with_cabinet[i:i + batch_size]
+            worksheet.append_rows(batch)
+            time.sleep(1)  # Защита от лимитов API
+        
         return True
     except Exception as e:
-        logging.error(f"Ошибка добавления листа для кабинета: {e}")
+        logging.error(f"Ошибка инициализации таблицы: {e}")
         return False
 
 def add_cabinet_to_user(username: str, api_key: str, cabinet_name: str):
     try:
         spreadsheet_url = cache.user_spreadsheet_urls.get(username)
+        if not spreadsheet_url:
+            logging.error(f"Для пользователя {username} не найдена таблица")
+            return False
+
+        # Добавляем в конфигурацию
         worksheet = gc.open_by_key(CONFIG_SHEET_ID).sheet1
         worksheet.append_row([username, api_key, cabinet_name, spreadsheet_url])
         cache.config_cache = None
+        
+        # Добавляем данные в таблицу пользователя
         spreadsheet = gc.open_by_url(spreadsheet_url)
-        add_cabinet_sheet(spreadsheet, cabinet_name, api_key)
-        return True
+        return add_cabinet_sheet(spreadsheet, cabinet_name, api_key)
     except Exception as e:
         logging.error(f"Ошибка добавления кабинета: {e}")
         return False
+
 
 def get_cabinet_api_key(username: str, cabinet_name: str) -> str:
     try:
@@ -947,7 +1000,7 @@ async def add_cabinet_in_manage_callback(callback: types.CallbackQuery, state: F
     
     instruction_photo = InputFile("instruction.jpg")
     await bot.send_photo(callback.message.chat.id, instruction_photo)
-    await callback.message.answer("Введите WB API ключ (статистика и продвижение) для нового кабинета:", reply_markup=get_cancel_keyboard())
+    await callback.message.answer("Введите WB API ключ (аналитика и продвижение) для нового кабинета:", reply_markup=get_cancel_keyboard())
     async with state.proxy() as data:
         data['username'] = username
     await AddCabinetStates.WAITING_API_KEY.set()
@@ -1007,8 +1060,9 @@ def update_cabinet_name(username: str, old_name: str, new_name: str) -> bool:
         
         spreadsheet_url = cache.user_spreadsheet_urls.get(username)
         spreadsheet = gc.open_by_url(spreadsheet_url)
-        worksheet_user = spreadsheet.get_worksheet(0)
-                
+        # worksheet_user = spreadsheet.get_worksheet(0)
+        worksheet_user = spreadsheet.worksheet("Маржа")
+        
         # Получаем все данные за один запрос
         all_values = worksheet_user.get_all_values()
         
@@ -1066,19 +1120,52 @@ def delete_cabinet(username: str, cabinet_name: str) -> bool:
         if spreadsheet_url:
             try:
                 spreadsheet = gc.open_by_url(spreadsheet_url)
-                worksheet_user = spreadsheet.get_worksheet(0)
+                # worksheet_user = spreadsheet.get_worksheet(0)
+                worksheet_user = spreadsheet.worksheet("Маржа")
                 
                 # Получаем все данные за один запрос
                 all_values = worksheet_user.get_all_values()
                 
-                # Фильтруем строки, оставляя только те, которые не принадлежат удаляемому кабинету
+                instruction_row = all_values[0]
+                
+                header_row = all_values[2]
+                data = all_values[3:]  # Данные начинаются с 4-й строки
+
+                worksheet_user.clear()
+
+                # Восстанавливаем структуру
+                worksheet_user.append_row(instruction_row)
+                worksheet_user.append_row(header_row, table_range='A3:E3')
+                
                 new_values = [
-                    row for row in all_values 
+                    row for row in data 
                     if not row or row[0] != cabinet_name  # Проверяем первый столбец (название кабинета)
                 ]
                 
-                # Обновляем весь лист за один запрос
-                worksheet_user.update(new_values, 'A1')
+                worksheet_user.append_rows(new_values)
+
+                # Восстанавливаем форматирование
+                worksheet_user.format("A1", {
+                    "textFormat": {
+                        "bold": True,
+                        "fontSize": 14
+                    },
+                    "horizontalAlignment": "LEFT",
+                    "wrapStrategy": "WRAP"
+                })
+                worksheet_user.merge_cells("A1:E1")
+                
+                # Серый цвет для заголовков (строка 3)
+                worksheet_user.format("A3:E3", {
+                    "backgroundColor": {
+                        "red": 0.9,
+                        "green": 0.9,
+                        "blue": 0.9
+                    },
+                    "textFormat": {
+                        "bold": True
+                    }
+                })
                 
             except Exception as e:
                 logging.error(f"Ошибка при удалении артикулов кабинета {cabinet_name} из таблицы пользователя: {e}")
@@ -1115,7 +1202,8 @@ async def refresh_articles_callback(callback: types.CallbackQuery, state: FSMCon
     msg = await bot.send_message(callback.from_user.id, f"⏳ Ожидайте 30 секунд, идёт обработка...", reply_markup=main_menu_keyboard)
     try:
         spreadsheet = gc.open_by_url(spreadsheet_url)
-        worksheet = spreadsheet.get_worksheet(0)
+        # worksheet = spreadsheet.get_worksheet(0)
+        worksheet = spreadsheet.worksheet("Маржа")
         existing_pairs = get_actual_articles(worksheet)
         new_pairs = set(get_wb_articles(api_key))
         new_pairs_with_cabinet = set([(cabinet_name, nmId, supplierArticle)
