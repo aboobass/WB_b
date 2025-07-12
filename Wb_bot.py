@@ -105,7 +105,7 @@ def calculate_metrics(orders, ad_stats_df, client_sheet_id=None):
                 orders[nmId]['auction_ctr'] = 0.0
 
             if nmId in client_data:
-                if client_data[nmId]['profit'] and client_data[nmId]['redemption']:
+                if client_data[nmId]['profit'] != '' and client_data[nmId]['redemption'] != '':
                     orders[nmId]['redemption_rate'] = float(client_data[nmId]['redemption']) / 100
                     orders[nmId]['profit_per_unit'] = float(client_data[nmId]['profit'])
 
@@ -127,13 +127,13 @@ def calculate_metrics(orders, ad_stats_df, client_sheet_id=None):
                 result.append([nmId, client_data[nmId]['vendorCode'], values['ordersCount'], values['costs'], values['gross_profit'], values['ordersSumRub'], ' ', values['views'], values['auto_ctr'], values['auction_ctr'], values.get('addToCartConversion', 0), values.get('cartToOrderConversion', 0)])
         result = pd.DataFrame(result, columns=['nmId', 'vendorCode', 'ordersCount', 'costs', 'gross_profit', 'ordersSumRub', 'void', 'views', 'auto_ctr', 'auction_ctr', 'addToCartConversion', 'cartToOrderConversion'])
         for index, row in result.iterrows():
-            if not pd.isna(result.at[index, 'costs']) and not pd.isna(result.at[index, 'gross_profit']):
+            if pd.notna(result.at[index, 'costs']) and pd.notna(result.at[index, 'gross_profit']):
                 result.at[index, 'net_profit'] = (result.at[index, 'gross_profit'] -
                                                   result.at[index, 'costs']).round(2)
             else:
                 print(index, result.at[index, 'gross_profit'], result.at[index, 'costs'])
                 result.at[index, 'net_profit'] = None
-            if not pd.isna(result.at[index, 'costs']) and not pd.isna(result.at[index, 'ordersSumRub']):
+            if pd.notna(result.at[index, 'costs']) and pd.notna(result.at[index, 'ordersSumRub']):
                 result.at[index, 'drr'] = (result.at[index, 'costs'] /
                                            result.at[index, 'ordersSumRub'] * 100).round(2)
             else:
@@ -157,7 +157,7 @@ def calculate_metrics(orders, ad_stats_df, client_sheet_id=None):
         result['Дата'] = (datetime.now() - timedelta(days=1)
                           ).strftime('%d.%m.%Y')
         # Заменяем None на строку "Нет данных"
-        for col in ['Расходы на рекламу по артикулу', 'Чистая прибыль за период по артикулу']:
+        for col in ['Чистая прибыль за период по артикулу']:
             result[col] = result[col].apply(
                 lambda x: "ВНЕСИТЕ" if pd.isna(x) or x is None else x
             )
@@ -282,6 +282,7 @@ def update_google_sheet_multi(sheet_id, sheet_name, data_df, spreadsheet):
                 "wrapStrategy": "WRAP"
             }
             worksheet.format(f'A4:{last_col_letter}4', header_format)
+            worksheet.freeze(4)
 
         # Подготовка данных
         values = []
@@ -458,7 +459,7 @@ def calculate_metrics_for_bot(orders, ad_stats_df, client_sheet_id=None):
                 orders[nmId]['costs'] = 0 
             
             if nmId in client_data:
-                if client_data[nmId]['profit'] and client_data[nmId]['redemption']:
+                if client_data[nmId]['profit'] != '' and client_data[nmId]['redemption'] != '':
                     orders[nmId]['redemption_rate'] = float(client_data[nmId]['redemption']) / 100
                     orders[nmId]['profit_per_unit'] = float(client_data[nmId]['profit'])
 
@@ -480,7 +481,7 @@ def calculate_metrics_for_bot(orders, ad_stats_df, client_sheet_id=None):
 
 
         for index, row in result.iterrows():
-            if result.at[index, 'gross_profit']:
+            if pd.notna(result.at[index, 'gross_profit']):
                 result.at[index, 'net_profit'] = (result.at[index, 'gross_profit'] -
                                                   result.at[index, 'costs']).round(2)
             else:
@@ -512,7 +513,10 @@ def generate_summary(df):
         return "Нет данных для формирования сводки"
 
     try:
+        # print(df)
         total_profit = df['Прибыль'].sum()
+        if pd.isna(total_profit):
+            total_profit = 0
         total_ads = df['Расходы РК'].sum()
         total_orders = df['Кол-во заказов'].sum()
 

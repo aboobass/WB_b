@@ -630,11 +630,11 @@ async def process_report_callback(callback: types.CallbackQuery):
                 if summary == "429_error":
                     await bot.send_message(user_id, "⚠️ Превышен лимит запросов. Попробуйте позже")
                     return
-                    
                 if df is not None and not df.empty:
-                    parts = summary.split(':')
-                    summ["costs"] += float(parts[1])
-                    summ["profit"] += float(parts[2])
+                    summ_parts = summary.split(':')
+                    summ["costs"] += float(summ_parts[1])
+                    if pd.notna(summ_parts[2]):
+                        summ["profit"] += float(summ_parts[2])
 
             await bot.send_message(user_id, 
                 f"<b>Суммарный отчёт по всем кабинетам:</b>\n"
