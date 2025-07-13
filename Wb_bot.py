@@ -96,8 +96,16 @@ def calculate_metrics(orders, ad_stats_df, client_sheet_id=None):
             if nmId in ad_stats_df:
                 orders[nmId]['costs'] = round(ad_stats_df[nmId]['sum'], 2)
                 orders[nmId]['views'] = round(ad_stats_df[nmId]['views'], 2)
-                orders[nmId]['auto_ctr'] = round(ad_stats_df[nmId]['auto_ctr'], 2)
-                orders[nmId]['auction_ctr'] = round(ad_stats_df[nmId]['auction_ctr'], 2)
+                
+                if ad_stats_df[nmId]['auto_views'] != 0:
+                    orders[nmId]['auto_ctr'] = round(ad_stats_df[nmId]['auto_clicks'] * 100 / ad_stats_df[nmId]['auto_views'], 2)                
+                else:
+                    orders[nmId]['auto_ctr'] = 0.0
+
+                if ad_stats_df[nmId]['auction_views'] != 0:
+                    orders[nmId]['auction_ctr'] = round(ad_stats_df[nmId]['auction_clicks'] * 100 / ad_stats_df[nmId]['auction_views'], 2)
+                else:
+                    orders[nmId]['auction_ctr'] = 0.0
             else:
                 orders[nmId]['costs'] = 0.0
                 orders[nmId]['views'] = 0.0

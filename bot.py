@@ -342,7 +342,10 @@ async def cancel_action_handler(callback: types.CallbackQuery, state: FSMContext
 async def cancel_action_admin_handler(callback: types.CallbackQuery, state: FSMContext):
     await state.finish()
     await show_admin_menu(callback.message.chat.id)
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except:
+        pass
 
 @dp.message_handler(commands=["add_cabinet"])
 async def add_cabinet_handler(message: types.Message, state: FSMContext):
@@ -538,7 +541,10 @@ async def get_report_callback(callback: types.CallbackQuery):
 async def back_to_main_callback(callback: types.CallbackQuery):
     if not is_admin(callback.from_user.id):
         await show_main_menu(callback.message.chat.id)
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except:
+        pass
 
 async def send_report_as_file(chat_id: int, username: str, cabinet_name: str, df: pd.DataFrame, summary: str):
     try:
@@ -1007,10 +1013,10 @@ async def add_cabinet_in_manage_callback(callback: types.CallbackQuery, state: F
         return
     
     try:
-        await callback.message.delete()
-        # bot.delete_message(
-        #     chat_id=callback.message.chat.id,
-        #     message_id=callback.message.message_id)
+        # await callback.message.delete()
+        await bot.delete_message(
+            chat_id=callback.message.chat.id,
+            message_id=callback.message.message_id)
     except:
         pass
     instruction_photo = InputFile("instruction.jpg")    
@@ -1029,15 +1035,18 @@ async def back_to_cabinets_callback(callback: types.CallbackQuery, state: FSMCon
 async def cancel_manage_callback(callback: types.CallbackQuery, state: FSMContext):
     await state.finish()
     await show_main_menu(callback.message.chat.id)
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except:
+        pass
 
 @dp.callback_query_handler(lambda c: c.data == "rename_cabinet", state=ManageCabinetStates.ACTION_CHOICE)
 async def rename_cabinet_callback(callback: types.CallbackQuery, state: FSMContext):
     try:
-        await callback.message.delete()
-        # bot.delete_message(
-        #     chat_id=callback.message.chat.id,
-        #     message_id=callback.message.message_id)
+        # await callback.message.delete()
+        await bot.delete_message(
+            chat_id=callback.message.chat.id,
+            message_id=callback.message.message_id)
     except:
         pass
     await callback.message.answer("Введите новое название для кабинета:", reply_markup=get_cancel_keyboard())
@@ -1305,7 +1314,10 @@ async def faq_callback(callback: types.CallbackQuery):
 
 @dp.callback_query_handler(lambda c: c.data == "support")
 async def support_callback(callback: types.CallbackQuery):
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except: 
+        pass
     await callback.message.answer(
         "✍️ Опишите ваш вопрос или проблему. Администратор ответит вам в ближайшее время.",
         reply_markup=get_cancel_keyboard()
@@ -1386,7 +1398,10 @@ async def main_menu_button_handler(message: types.Message, state: FSMContext):
 @dp.callback_query_handler(lambda c: c.data == "admin_broadcast")
 async def broadcast_callback(callback: types.CallbackQuery):
     if is_admin(callback.from_user.id):
-        await callback.message.delete()
+        try:
+            await callback.message.delete()
+        except:
+            pass
         await callback.message.answer(
             "✍️ Введите сообщение для рассылки всем пользователям:",
             reply_markup=get_cancel_admin_keyboard()
@@ -1472,7 +1487,10 @@ async def confirm_broadcast(callback: types.CallbackQuery, state: FSMContext):
 async def cancel_broadcast(callback: types.CallbackQuery, state: FSMContext):
     await state.finish()
     await show_admin_menu(callback.message.chat.id)
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except:
+        pass
 
 
 async def main():

@@ -206,10 +206,12 @@ def get_expenses_per_nm(HEADERS, date=None):
                 # nm_expenses[nmId]['views'] = nm_expenses[nmId].get('views', 0) + views_per_nm
 
                 nm_expenses[nmId]['views'] = nm_expenses[nmId].get('views', 0) + views_per_nm.get(nmId, 0)
-                nm_expenses[nmId]['auto_ctr'] = nm_expenses[nmId].get('auto_ctr', 0) + auto_clicks_per_nm.get(nmId, 0) * 100/auto_views_per_nm.get(nmId, 1)
-                nm_expenses[nmId]['auction_ctr'] = nm_expenses[nmId].get('auction_ctr', 0) + auction_clicks_per_nm.get(nmId, 0) * 100/auction_views_per_nm.get(nmId, 1)
+                nm_expenses[nmId]['auto_clicks'] = nm_expenses[nmId].get('auto_clicks', 0) + auto_clicks_per_nm.get(nmId, 0)
+                nm_expenses[nmId]['auto_views'] = nm_expenses[nmId].get('auto_views', 0) + auto_views_per_nm.get(nmId, 0)
+                nm_expenses[nmId]['auction_clicks'] = nm_expenses[nmId].get('auction_clicks', 0) + auction_clicks_per_nm.get(nmId, 0)
+                nm_expenses[nmId]['auction_views'] = nm_expenses[nmId].get('auction_views', 0) + auction_views_per_nm.get(nmId, 0)
             
             # print(nm_expenses)
         i += len(chunk)
-
+    
     return dict(nm_expenses)
