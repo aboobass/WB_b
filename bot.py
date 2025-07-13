@@ -84,7 +84,6 @@ EMAIL_REGEX = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
 gc = gspread.authorize(CREDS)
 
 # Глобальный словарь для отслеживания активных запросов
-active_requests = {}
 
 class ActiveRequestMiddleware(BaseMiddleware):
     async def on_pre_process_callback_query(self, callback_query: types.CallbackQuery, data: dict):
@@ -93,10 +92,6 @@ class ActiveRequestMiddleware(BaseMiddleware):
         if callback_query.data == "back_to_main":
             return
         
-        if active_requests.get(user_id):
-            await callback_query.answer("Дождитесь генерации прошлого отчёта", show_alert=True)
-            raise CancelHandler()
-
 # Собственная реализация rate limiter
 class RateLimiterMiddleware(BaseMiddleware):
     def __init__(self, limit=3, interval=5):
@@ -599,17 +594,21 @@ async def process_report_callback(callback: types.CallbackQuery):
     if is_admin(user_id):
         return
     
-    if active_requests.get(user_id):
-        await callback.answer("Дождитесь генерации прошлого отчёта", show_alert=True)
-        return
-    
     parts = callback.data.split(":")
     username = parts[1]
     cabinet = parts[2]
-    active_requests[user_id] = True
     
-    wait_message = await bot.send_message(user_id, "🔄 Формирую отчёт, это займёт некоторое время...", reply_markup=main_menu_keyboard)
-    
+    try:
+        wait_message = await callback.message.edit_text(
+            text="🔄 Формирую отчёт, это займёт некоторое время...",
+            reply_markup=None  # Убираем клавиатуру
+        )
+    except Exception as e:
+        logging.error(f"Ошибка редактирования сообщения: {e}")
+        # Если не удалось отредактировать, отправляем новое сообщение
+        wait_message = await bot.send_message(user_id, "🔄 Формирую отчёт, это займёт некоторое время...")
+
+    # wait_message = await bot.send_message(user_id, "🔄 Формирую отчёт, это займёт некоторое время...", reply_markup=main_menu_keyboard)
     try:
         if cabinet == "all":
             cabinets = await cache.get_user_cabinets(username)
@@ -659,7 +658,6 @@ async def process_report_callback(callback: types.CallbackQuery):
             else:
                 await send_report_as_file(user_id, username, cabinet, df, summary)
     finally:
-        active_requests.pop(user_id, None)
         try:
             await bot.delete_message(user_id, wait_message.message_id)
         except:
@@ -1006,7 +1004,14 @@ async def add_cabinet_in_manage_callback(callback: types.CallbackQuery, state: F
         await callback.answer("❌ Достигнут лимит в 7 кабинетов", show_alert=True)
         return
     
-    instruction_photo = InputFile("instruction.jpg")
+    try:
+        await callback.message.delete()
+        # bot.delete_message(
+        #     chat_id=callback.message.chat.id,
+        #     message_id=callback.message.message_id)
+    except:
+        pass
+    instruction_photo = InputFile("instruction.jpg")    
     await bot.send_photo(callback.message.chat.id, instruction_photo)
     await callback.message.answer("Введите WB API ключ (аналитика и продвижение) для нового кабинета:", reply_markup=get_cancel_keyboard())
     async with state.proxy() as data:
@@ -1026,6 +1031,13 @@ async def cancel_manage_callback(callback: types.CallbackQuery, state: FSMContex
 
 @dp.callback_query_handler(lambda c: c.data == "rename_cabinet", state=ManageCabinetStates.ACTION_CHOICE)
 async def rename_cabinet_callback(callback: types.CallbackQuery, state: FSMContext):
+    try:
+        await callback.message.delete()
+        # bot.delete_message(
+        #     chat_id=callback.message.chat.id,
+        #     message_id=callback.message.message_id)
+    except:
+        pass
     await callback.message.answer("Введите новое название для кабинета:", reply_markup=get_cancel_keyboard())
     await ManageCabinetStates.WAITING_NEW_NAME.set()
 
@@ -1094,8 +1106,16 @@ async def delete_cabinet_callback(callback: types.CallbackQuery, state: FSMConte
         cabinet_name = data['cabinet']
         username = data['username']
 
-
-    wait_message = await callback.message.answer("🔄 Ожидайте 30 сек, идёт удаление кабинета", reply_markup=main_menu_keyboard)
+    try:
+        wait_message = await callback.message.edit_text(
+            text="🔄 Ожидайте 30 сек, идёт удаление кабинета...",
+            reply_markup=None  # Убираем клавиатуру
+        )
+    except Exception as e:
+        logging.error(f"Ошибка редактирования сообщения: {e}")
+        # Если не удалось отредактировать, отправляем новое сообщение    
+        wait_message = await callback.message.answer("🔄 Ожидайте 30 сек, идёт удаление кабинета...", reply_markup=main_menu_keyboard)
+    
     success = await run_in_thread(delete_cabinet, username, cabinet_name)
     if success:
         await callback.message.answer(f"✅ Кабинет '{cabinet_name}' успешно удалён")
@@ -1207,7 +1227,15 @@ async def refresh_articles_callback(callback: types.CallbackQuery, state: FSMCon
         return
 
     await callback.answer()
-    msg = await bot.send_message(callback.from_user.id, f"⏳ Ожидайте 30 секунд, идёт обработка...", reply_markup=main_menu_keyboard)
+    try:
+        msg = await callback.message.edit_text(
+            text="⏳ Ожидайте 30 секунд, идёт обработка...",
+            reply_markup=None  # Убираем клавиатуру
+        )
+    except Exception as e:
+        logging.error(f"Ошибка редактирования сообщения: {e}")
+        # Если не удалось отредактировать, отправляем новое сообщение    
+        msg = await bot.send_message(callback.from_user.id, "⏳ Ожидайте 30 секунд, идёт обработка...", reply_markup=main_menu_keyboard)
     try:
         spreadsheet = gc.open_by_url(spreadsheet_url)
         # worksheet = spreadsheet.get_worksheet(0)
@@ -1275,6 +1303,7 @@ async def faq_callback(callback: types.CallbackQuery):
 
 @dp.callback_query_handler(lambda c: c.data == "support")
 async def support_callback(callback: types.CallbackQuery):
+    await callback.message.delete()
     await callback.message.answer(
         "✍️ Опишите ваш вопрос или проблему. Администратор ответит вам в ближайшее время.",
         reply_markup=get_cancel_keyboard()
@@ -1355,6 +1384,7 @@ async def main_menu_button_handler(message: types.Message, state: FSMContext):
 @dp.callback_query_handler(lambda c: c.data == "admin_broadcast")
 async def broadcast_callback(callback: types.CallbackQuery):
     if is_admin(callback.from_user.id):
+        await callback.message.delete()
         await callback.message.answer(
             "✍️ Введите сообщение для рассылки всем пользователям:",
             reply_markup=get_cancel_admin_keyboard()
@@ -1396,6 +1426,7 @@ async def confirm_broadcast(callback: types.CallbackQuery, state: FSMContext):
     failed = 0
     
     # Отправляем сообщение с индикатором прогресса
+
     status_msg = await bot.send_message(admin_id, f"🔄 Начата рассылка... 0/{total}")
     
     # Рассылаем сообщения
@@ -1431,7 +1462,7 @@ async def confirm_broadcast(callback: types.CallbackQuery, state: FSMContext):
         await bot.delete_message(admin_id, status_msg.message_id)
     except:
         pass
-    
+    await show_admin_menu(callback.message.chat.id)
     await state.finish()
 
 # Обработчик отмены рассылки
