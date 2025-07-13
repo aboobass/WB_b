@@ -317,6 +317,13 @@ async def show_spreadsheet_callback(callback: types.CallbackQuery):
         await callback.answer("❌ Вы не привязаны к аккаунту", show_alert=True)
         return
     
+    try:
+        await bot.delete_message(
+            chat_id=callback.message.chat.id,
+            message_id=callback.message.message_id)
+    except:
+        pass
+
     spreadsheet_url = cache.user_spreadsheet_urls.get(username)
     if spreadsheet_url:
         message = (
