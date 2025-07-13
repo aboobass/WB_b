@@ -374,6 +374,7 @@ async def process_cabinet_api_key(message: types.Message, state: FSMContext):
         await message.answer("❌ API ключ не может быть пустым!")
         return
 
+    msg = await message.answer("⏳ Ожидайте 30 секунд, идёт обработка...")
     if not validate_wb_api_key(api_key):
         await message.answer("❌ Неверный API ключ! Проверьте ключ и попробуйте снова.")
         return
@@ -382,7 +383,7 @@ async def process_cabinet_api_key(message: types.Message, state: FSMContext):
         data['api_key'] = api_key
 
     await AddCabinetStates.next()
-    await message.answer("✅ Ключ принят! Теперь введите название для нового кабинета:", reply_markup=get_cancel_keyboard())
+    await msg.edit_text("✅ Ключ принят! Теперь введите название для нового кабинета:", reply_markup=get_cancel_keyboard())
 
 @dp.message_handler(state=AddCabinetStates.WAITING_CABINET_NAME)
 async def process_new_cabinet_name(message: types.Message, state: FSMContext):
@@ -422,6 +423,7 @@ async def process_registration_api_key(message: types.Message, state: FSMContext
         await message.answer("❌ API ключ не может быть пустым!")
         return
 
+    msg = await message.answer("⏳ Ожидайте 30 секунд, идёт обработка...")
     if not validate_wb_api_key(api_key):
         await message.answer("❌ Неверный API ключ! Проверьте ключ и попробуйте снова.")
         return
@@ -430,7 +432,7 @@ async def process_registration_api_key(message: types.Message, state: FSMContext
         data['api_key'] = api_key
 
     await UserRegistrationStates.next()
-    await message.answer("✅ Ключ принят! Теперь введите название для вашего личного кабинета:", reply_markup=get_cancel_keyboard())
+    await msg.edit_text("✅ Ключ принят! Теперь введите название для вашего личного кабинета:", reply_markup=get_cancel_keyboard())
 
 
 @dp.message_handler(state=UserRegistrationStates.WAITING_CABINET_NAME)
