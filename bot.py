@@ -947,16 +947,22 @@ async def manage_cabinets_callback(callback: types.CallbackQuery):
                 callback_data=f"select_cabinet:{cabinet}"
             ))
     else:
-        await callback.message.edit_text(
-            "У вас пока нет кабинетов. Хотите добавить первый?",
-            reply_markup=kb
-        )
-        await ManageCabinetStates.SELECT_CABINET.set()
-        return
+        try:
+            await callback.message.edit_text(
+                "У вас пока нет кабинетов. Хотите добавить первый?",
+                reply_markup=kb
+            )
+            await ManageCabinetStates.SELECT_CABINET.set()
+            return
+        except MessageNotModified:
+            await callback.answer()
 
     kb.add(InlineKeyboardButton("❌ Отмена", callback_data="cancel_manage"))
-    await callback.message.edit_text("Выберите кабинет для управления:", reply_markup=kb)
-    await ManageCabinetStates.SELECT_CABINET.set()
+    try:
+        await callback.message.edit_text("Выберите кабинет для управления:", reply_markup=kb)
+        await ManageCabinetStates.SELECT_CABINET.set()
+    except MessageNotModified:
+        await callback.answer()
 
 @dp.callback_query_handler(lambda c: c.data.startswith("select_cabinet:"), state=ManageCabinetStates.SELECT_CABINET)
 async def select_cabinet_callback(callback: types.CallbackQuery, state: FSMContext):
@@ -975,12 +981,14 @@ async def select_cabinet_callback(callback: types.CallbackQuery, state: FSMConte
         InlineKeyboardButton("🔄 Обновить артикулы", callback_data="refresh_articles"),
         InlineKeyboardButton("🔙 Назад", callback_data="back_to_cabinets")
     )
-
-    await callback.message.edit_text(
-        f"Выбран кабинет: {cabinet_name}\nВыберите действие:",
-        reply_markup=kb
-    )
-    await ManageCabinetStates.ACTION_CHOICE.set()
+    try:
+        await callback.message.edit_text(
+            f"Выбран кабинет: {cabinet_name}\nВыберите действие:",
+            reply_markup=kb
+        )
+        await ManageCabinetStates.ACTION_CHOICE.set()
+    except MessageNotModified:
+        await callback.answer()
 
 @dp.callback_query_handler(lambda c: c.data == "add_cabinet_in_manage", state=ManageCabinetStates.SELECT_CABINET)
 async def add_cabinet_in_manage_callback(callback: types.CallbackQuery, state: FSMContext):
@@ -1408,7 +1416,7 @@ async def confirm_broadcast(callback: types.CallbackQuery, state: FSMContext):
                     f"❌ Ошибки: {failed}"
                 )
             except:
-                pass
+                await callback.answer()
     
     # Отправляем финальный отчет
     await bot.send_message(
