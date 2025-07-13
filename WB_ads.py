@@ -6,9 +6,6 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 import logging
 
-API_KEY = "eyJhbGciOiJFUzI1NiIsImtpZCI6IjIwMjUwNTIwdjEiLCJ0eXAiOiJKV1QifQ.eyJlbnQiOjEsImV4cCI6MTc2NjIxMzM0MiwiaWQiOiIwMTk3OGVhYy0zZWVhLTc5MTUtOGY5OS02ZjA5MmVjZmQyMWIiLCJpaWQiOjkwNTkxNzg2LCJvaWQiOjEwNDQxNTAsInMiOjE2MTI2LCJzaWQiOiJhODA2NWM4Mi0wODg3LTQxZjktODlmZS02OWRlZjVmYTAzM2YiLCJ0IjpmYWxzZSwidWlkIjo5MDU5MTc4Nn0.2tY1tLfenFOOJU_IO0C_JVMe_tucFvWekVCV5Z0IskfK9ESMo7yCDZYs7fH7HRA6Hv0-Ls_9bzv4d_Rx2lQ6fQ"
-HEADERS = {"Authorization": API_KEY}
-
 def safe_request(HEADERS, url, method='GET', json_data=None, params=None, max_retries=3):
     for attempt in range(max_retries):
         try:
