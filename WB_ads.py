@@ -152,9 +152,6 @@ def get_expenses_per_nm(HEADERS, date=None):
         # Обрабатываем ответ
         for campaign_data in response:
             advert_id = campaign_data.get('advertId')
-            total_expense = campaign_data.get('sum', 0)
-
-            # views = campaign_data.get('views', 0)
 
             # Находим соответствующую кампанию в нашем списке
             campaign = next(
@@ -163,18 +160,12 @@ def get_expenses_per_nm(HEADERS, date=None):
                 continue
 
             nmIds = campaign['nmIds']
-            if not nmIds or total_expense <= 0:
+            if not nmIds: #or total_expense <= 0:
                 continue
             
-            # if campaign['tipe_comp'] == 'auto':
-            #     auto_ctr = float(campaign_data.get('ctr', 0))
-            # elif campaign['tipe_comp'] == 'auction':
-            #     auction_ctr = float(campaign_data.get('ctr', 0))
-            # else:
-            #     auto_ctr = 0
-            #     auction_ctr = 0
-
             views_per_nm = {}
+            total_expense_per_nm = {}
+
             auto_views_per_nm = {}
             auto_clicks_per_nm = {}
             
@@ -184,28 +175,28 @@ def get_expenses_per_nm(HEADERS, date=None):
             for camp_apps in campaign_data['days'][0]['apps']:
                 for camp_nms in camp_apps['nm']:
                     nm_Id = camp_nms['nmId']
-                    views_per_nm[nm_Id] = views_per_nm.get(nm_Id, 0) + camp_nms['views']
+                    total_expense_per_nm[nm_Id] =  total_expense_per_nm.get(nm_Id, 0) + camp_nms.get('sum', 0)
+                    views_per_nm[nm_Id] = views_per_nm.get(nm_Id, 0) + camp_nms.get('views', 0)
                     if campaign['tipe_comp'] == 'auto':
-                        auto_clicks_per_nm[nm_Id] = auto_clicks_per_nm.get(nm_Id, 0) + camp_nms['clicks']
-                        auto_views_per_nm[nm_Id] = auto_views_per_nm.get(nm_Id, 0) + camp_nms['views']
+                        auto_clicks_per_nm[nm_Id] = auto_clicks_per_nm.get(nm_Id, 0) + camp_nms.get('clicks', 0)
+                        auto_views_per_nm[nm_Id] = auto_views_per_nm.get(nm_Id, 0) + camp_nms.get('views', 0)
 
                     elif campaign['tipe_comp'] == 'auction':
-                        auction_clicks_per_nm[nm_Id] = auction_clicks_per_nm.get(nm_Id, 0) + camp_nms['clicks']
-                        auction_views_per_nm[nm_Id] = auction_views_per_nm.get(nm_Id, 0) + camp_nms['views']
+                        auction_clicks_per_nm[nm_Id] = auction_clicks_per_nm.get(nm_Id, 0) + camp_nms.get('clicks', 0)
+                        auction_views_per_nm[nm_Id] = auction_views_per_nm.get(nm_Id, 0) + camp_nms.get('views', 0)
 
 
                         
 
             # Распределяем затраты по артикулам
-            expense_per_nm = total_expense / len(nmIds)
+            # expense_per_nm = total_expense / len(nmIds)
             # views_per_nm = views / len(nmIds)
             # auto_ctr_per_nm = auto_ctr / len(nmIds)
             # auction_ctr_per_nm =  auction_ctr / len(nmIds)
             for nmId in nmIds:
-                nm_expenses[nmId]['sum'] = nm_expenses[nmId].get('sum', 0) + expense_per_nm
-                # nm_expenses[nmId]['views'] = nm_expenses[nmId].get('views', 0) + views_per_nm
-
+                nm_expenses[nmId]['sum'] = nm_expenses[nmId].get('sum', 0) + total_expense_per_nm.get(nmId, 0)
                 nm_expenses[nmId]['views'] = nm_expenses[nmId].get('views', 0) + views_per_nm.get(nmId, 0)
+
                 nm_expenses[nmId]['auto_clicks'] = nm_expenses[nmId].get('auto_clicks', 0) + auto_clicks_per_nm.get(nmId, 0)
                 nm_expenses[nmId]['auto_views'] = nm_expenses[nmId].get('auto_views', 0) + auto_views_per_nm.get(nmId, 0)
                 nm_expenses[nmId]['auction_clicks'] = nm_expenses[nmId].get('auction_clicks', 0) + auction_clicks_per_nm.get(nmId, 0)
