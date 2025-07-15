@@ -2,7 +2,7 @@ from datetime import datetime
 import requests
 import asyncio
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections import defaultdict
 import logging
 

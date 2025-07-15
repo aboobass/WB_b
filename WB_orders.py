@@ -1,6 +1,5 @@
 import requests
 import json
-from datetime import datetime, timedelta
 import time
 import asyncio
 import logging

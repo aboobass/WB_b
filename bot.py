@@ -1,10 +1,8 @@
 from aiogram.types import InputFile, ReplyKeyboardMarkup, KeyboardButton
 import pytz
-from numpy import nan
 from datetime import time as t, datetime, timedelta
 import asyncio
 import logging
-import re
 import json
 import os
 import gspread
@@ -18,11 +16,6 @@ from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram.utils.exceptions import MessageNotModified
-from aiogram.dispatcher.handler import CancelHandler
-from aiogram.dispatcher.middlewares import BaseMiddleware
-from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
-import time
 
 
 from config import API_TOKEN, CONFIG_URL, ADMIN_IDS, CREDS, CONFIG_SHEET_ID
@@ -173,9 +166,6 @@ class UserDataCache:
         config = await self.get_config_cache()
         return list(config.keys()) if config else []
 
-    async def get_available_users_for_admin(self):
-        return await self.get_available_users()
-
     async def get_available_users_for_user(self, telegram_id: int):
         return [self.user_mapping.get(telegram_id)]
 
@@ -207,11 +197,6 @@ async def show_admin_menu(chat_id, message_text="Выберите действи
     admin_kb.add(InlineKeyboardButton("📢 Рассылка", callback_data="admin_broadcast"))
     await bot.send_message(chat_id, message_text, reply_markup=admin_kb)
 
-# Функция для запуска блокирующих операций в отдельном потоке
-async def run_in_thread(func, *args):
-    loop = asyncio.get_running_loop()
-    with ThreadPoolExecutor() as pool:
-        return loop.run_in_executor(pool, func, *args)
 
 @dp.callback_query_handler(lambda c: c.data == "subscribe")
 async def subscribe_callback(callback: types.CallbackQuery):
