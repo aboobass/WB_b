@@ -1283,14 +1283,15 @@ async def main_menu_button_handler(message: types.Message, state: FSMContext):
 @dp.callback_query_handler(lambda c: c.data == "admin_broadcast")
 async def broadcast_callback(callback: types.CallbackQuery):
     if is_admin(callback.from_user.id):
-        try:
-            await callback.message.delete()
-        except:
-            pass
+        msg = callback.message
         await callback.message.answer(
             "✍️ Введите сообщение для рассылки всем пользователям:",
             reply_markup=get_cancel_admin_keyboard()
         )
+        try:
+            await msg.delete()
+        except:
+            pass
         await BroadcastStates.WAITING_MESSAGE.set()
     await callback.answer()
 
