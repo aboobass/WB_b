@@ -576,7 +576,7 @@ async def process_report_callback(callback: types.CallbackQuery):
 
             summ = {'costs': 0.0, 'profit': 0.0}
             for cabinet_name in cabinets:
-                df, summary = await generate_report(username, cabinet, CONFIG_URL)
+                df, summary = await generate_report(username, cabinet_name, CONFIG_URL)
 
                 
                 if summary == "429_error":
