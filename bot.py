@@ -1,13 +1,12 @@
 from aiogram.types import InputFile, ReplyKeyboardMarkup, KeyboardButton
 import pytz
-from numpy import nan
 from datetime import time as t, datetime, timedelta
 import asyncio
 import logging
-import re
 import json
 import os
 import gspread
+import time
 import requests
 import pandas as pd
 import tempfile
@@ -18,11 +17,6 @@ from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram.utils.exceptions import MessageNotModified
-from aiogram.dispatcher.handler import CancelHandler
-from aiogram.dispatcher.middlewares import BaseMiddleware
-from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
-import time
 
 
 from config import API_TOKEN, CONFIG_URL, ADMIN_IDS, CREDS, CONFIG_SHEET_ID
@@ -94,7 +88,7 @@ def get_cancel_admin_keyboard():
     return kb
 
 def validate_cabinet_name(name: str) -> bool:
-    return 2 <= len(name.strip()) <= 50
+    return name.isidentifier() and (2 <= len(name.strip()) <= 50)
 
 def validate_wb_api_key(api_key: str) -> bool:
     url_stat = "https://seller-analytics-api.wildberries.ru/ping"
@@ -173,9 +167,6 @@ class UserDataCache:
         config = await self.get_config_cache()
         return list(config.keys()) if config else []
 
-    async def get_available_users_for_admin(self):
-        return await self.get_available_users()
-
     async def get_available_users_for_user(self, telegram_id: int):
         return [self.user_mapping.get(telegram_id)]
 
@@ -207,11 +198,6 @@ async def show_admin_menu(chat_id, message_text="Выберите действи
     admin_kb.add(InlineKeyboardButton("📢 Рассылка", callback_data="admin_broadcast"))
     await bot.send_message(chat_id, message_text, reply_markup=admin_kb)
 
-# Функция для запуска блокирующих операций в отдельном потоке
-async def run_in_thread(func, *args):
-    loop = asyncio.get_running_loop()
-    with ThreadPoolExecutor() as pool:
-        return loop.run_in_executor(pool, func, *args)
 
 @dp.callback_query_handler(lambda c: c.data == "subscribe")
 async def subscribe_callback(callback: types.CallbackQuery):
@@ -368,7 +354,8 @@ async def process_new_cabinet_name(message: types.Message, state: FSMContext):
 
     wait_message = await message.answer("🔄 Ожидайте 30 сек, идёт добавление кабинета и обновление артикулов...", reply_markup=main_menu_keyboard)
     try:
-        success = await run_in_thread(add_cabinet_to_user, username, api_key, cabinet_name)
+        articles = await get_wb_articles(api_key)
+        success = add_cabinet_to_user(username, api_key, cabinet_name, articles)
         if success:
             response = f"✅ Кабинет '{cabinet_name}' успешно добавлен! Артикулы добавлены в вашу таблицу."
         else:
@@ -419,18 +406,17 @@ async def process_registration_cabinet_name(message: types.Message, state: FSMCo
     username = f"user_{message.from_user.id}"
 
     # Получаем свободную таблицу из пула
-    spreadsheet_info = await run_in_thread(get_available_spreadsheet, username)
+    spreadsheet_info = get_available_spreadsheet(username)
     if not spreadsheet_info:
         await message.answer("❌ Нет доступных таблиц. Обратитесь к администратору.")
         await state.finish()
         return
 
     # Предоставляем доступ
-    await run_in_thread(grant_spreadsheet_access, spreadsheet_info['id'])
+    grant_spreadsheet_access(spreadsheet_info['id'])
 
     # Добавляем пользователя в конфигурацию
-    await run_in_thread(
-        add_user_to_config,
+    add_user_to_config(
         username,
         api_key,
         cabinet_name,
@@ -444,7 +430,9 @@ async def process_registration_cabinet_name(message: types.Message, state: FSMCo
 
     # Инициализируем таблицу
     spreadsheet = gc.open_by_url(spreadsheet_info['url'])
-    success = await run_in_thread(add_cabinet_sheet, spreadsheet, cabinet_name, api_key)
+    
+    articles = await get_wb_articles(api_key)
+    success = add_cabinet_sheet(spreadsheet, cabinet_name, articles)
     
     if success:
         await message.answer(
@@ -592,13 +580,14 @@ async def process_report_callback(callback: types.CallbackQuery):
 
             summ = {'costs': 0.0, 'profit': 0.0}
             for cabinet_name in cabinets:
-                df, summary = await generate_report(username, cabinet, CONFIG_URL)
+                df, summary = await generate_report(username, cabinet_name, CONFIG_URL)
 
                 
                 if summary == "429_error":
                     await bot.send_message(user_id, "⚠️ Превышен лимит запросов. Попробуйте позже")
                     return
                 if df is not None and not df.empty:
+                    print(summary)
                     summ_parts = summary.split(':')
                     summ["costs"] += float(summ_parts[1])
                     if pd.notna(summ_parts[2]):
@@ -645,7 +634,7 @@ def add_articles_to_sheet(worksheet, articles):
         batch = values[i:i+batch_size]
         try:
             worksheet.append_rows(batch)
-            asyncio.run(asyncio.sleep(1))
+            time.sleep(1)
         except Exception as e:
             logging.error(f"Ошибка добавления артикулов: {e}")
 
@@ -703,14 +692,10 @@ def sort_sheet(worksheet):
     except Exception as e:
         logging.error(f"Ошибка сортировки листа: {e}")
 
-def get_wb_articles(api_key: str):
-    url = "https://statistics-api.wildberries.ru/api/v1/supplier/"
-    date_from = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
-    params = {"dateFrom": date_from}
+async def get_wb_articles(api_key: str):
     headers = {"Authorization": api_key}
-
     try:
-        cards = get_wb_product_cards(headers)
+        cards = await get_wb_product_cards(headers)
         nm_ids = [(product['nmID'], product['vendorCode']) for product in cards]
         unique_pairs = set()
         for item in nm_ids:
@@ -768,7 +753,7 @@ def add_user_to_config(username: str, api_key: str, cabinet_name: str, spreadshe
     except Exception as e:
         logging.error(f"Ошибка добавления пользователя в конфиг: {e}")
 
-def add_cabinet_sheet(spreadsheet, cabinet_name: str, api_key: str):
+def add_cabinet_sheet(spreadsheet, cabinet_name: str, articles):
     try:
         # Пытаемся получить лист "Маржа"
         try:
@@ -812,7 +797,7 @@ def add_cabinet_sheet(spreadsheet, cabinet_name: str, api_key: str):
             # worksheet.freeze(rows=1)
         
         # Добавляем артикулы
-        articles = get_wb_articles(api_key)
+        # articles = get_wb_articles(api_key)
         articles_with_cabinet = [
             [cabinet_name, str(nmId), str(supplierArticle), "", ""]
             for (nmId, supplierArticle) in articles
@@ -823,14 +808,14 @@ def add_cabinet_sheet(spreadsheet, cabinet_name: str, api_key: str):
         for i in range(0, len(articles_with_cabinet), batch_size):
             batch = articles_with_cabinet[i:i + batch_size]
             worksheet.append_rows(batch)
-            asyncio.run(asyncio.sleep(1))
-        
+            time.sleep(1) 
         return True
     except Exception as e:
         logging.error(f"Ошибка инициализации таблицы: {e}")
         return False
 
-def add_cabinet_to_user(username: str, api_key: str, cabinet_name: str):
+
+def add_cabinet_to_user(username: str, api_key: str, cabinet_name: str, articles):
     try:
         spreadsheet_url = cache.user_spreadsheet_urls.get(username)
         if not spreadsheet_url:
@@ -844,7 +829,7 @@ def add_cabinet_to_user(username: str, api_key: str, cabinet_name: str):
         
         # Добавляем данные в таблицу пользователя
         spreadsheet = gc.open_by_url(spreadsheet_url)
-        return add_cabinet_sheet(spreadsheet, cabinet_name, api_key)
+        return add_cabinet_sheet(spreadsheet, cabinet_name, articles)
     except Exception as e:
         logging.error(f"Ошибка добавления кабинета: {e}")
         return False
@@ -988,7 +973,7 @@ async def rename_cabinet_callback(callback: types.CallbackQuery, state: FSMConte
     await ManageCabinetStates.WAITING_NEW_NAME.set()
 
 @dp.message_handler(state=ManageCabinetStates.WAITING_NEW_NAME)
-async def process_new_cabinet_name(message: types.Message, state: FSMContext):
+async def process_new_cabinet_name2(message: types.Message, state: FSMContext):
     new_name = message.text.strip()
     user_id = message.from_user.id
     if is_admin(user_id):
@@ -1003,7 +988,7 @@ async def process_new_cabinet_name(message: types.Message, state: FSMContext):
         username = data['username']
 
     wait_message = await message.answer("🔄 Ожидайте 30 сек, идёт переименование кабинета", reply_markup=main_menu_keyboard)
-    success = await run_in_thread(update_cabinet_name, username, old_name, new_name)
+    success = update_cabinet_name(username, old_name, new_name)
     if success:
         await message.answer(f"✅ Кабинет успешно переименован: {old_name} → {new_name}")
         cache.config_cache = None
@@ -1062,7 +1047,7 @@ async def delete_cabinet_callback(callback: types.CallbackQuery, state: FSMConte
         # Если не удалось отредактировать, отправляем новое сообщение    
         wait_message = await callback.message.answer("🔄 Ожидайте 30 сек, идёт удаление кабинета...", reply_markup=main_menu_keyboard)
     
-    success = await run_in_thread(delete_cabinet, username, cabinet_name)
+    success = delete_cabinet(username, cabinet_name)
     if success:
         await callback.message.answer(f"✅ Кабинет '{cabinet_name}' успешно удалён")
         cache.config_cache = None
@@ -1158,7 +1143,7 @@ async def refresh_articles_callback(callback: types.CallbackQuery, state: FSMCon
         cabinet_name = data['cabinet']
         username = data['username']
 
-    api_key = await run_in_thread(get_cabinet_api_key, username, cabinet_name)
+    api_key = get_cabinet_api_key(username, cabinet_name)
     if not api_key:
         await callback.answer("❌ Не удалось получить API ключ для кабинета")
         await state.finish()
@@ -1187,12 +1172,12 @@ async def refresh_articles_callback(callback: types.CallbackQuery, state: FSMCon
         # worksheet = spreadsheet.get_worksheet(0)
         worksheet = spreadsheet.worksheet("Маржа")
         existing_pairs = get_actual_articles(worksheet)
-        new_pairs = set(get_wb_articles(api_key))
+        new_pairs = set(await get_wb_articles(api_key))
         new_pairs_with_cabinet = set([(cabinet_name, nmId, supplierArticle)
                                       for (nmId, supplierArticle) in new_pairs])
         missing_pairs = list(new_pairs_with_cabinet - existing_pairs)
         if missing_pairs:
-            await run_in_thread(add_articles_to_sheet, worksheet, missing_pairs)
+            add_articles_to_sheet(worksheet, missing_pairs)
             await bot.send_message(callback.from_user.id, f"✅ Добавлено {len(missing_pairs)} новых пар артикулов и баркодов!")
         else:
             await bot.send_message(callback.from_user.id, "ℹ️ Все артикулы и баркоды уже актуальны!")
@@ -1333,14 +1318,15 @@ async def main_menu_button_handler(message: types.Message, state: FSMContext):
 @dp.callback_query_handler(lambda c: c.data == "admin_broadcast")
 async def broadcast_callback(callback: types.CallbackQuery):
     if is_admin(callback.from_user.id):
-        try:
-            await callback.message.delete()
-        except:
-            pass
+        msg = callback.message
         await callback.message.answer(
             "✍️ Введите сообщение для рассылки всем пользователям:",
             reply_markup=get_cancel_admin_keyboard()
         )
+        try:
+            await msg.delete()
+        except:
+            pass
         await BroadcastStates.WAITING_MESSAGE.set()
     await callback.answer()
 
