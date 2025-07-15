@@ -2,6 +2,7 @@ import requests
 import json
 from datetime import datetime, timedelta
 import time
+import asyncio
 import logging
 
 def get_wb_grouped_stats(target_date, headers):
@@ -74,7 +75,7 @@ def get_wb_grouped_stats(target_date, headers):
         return None
 
 
-def get_wb_product_cards(headers):
+async def get_wb_product_cards(headers):
     """
     Получает информацию по всем карточкам товаров с пагинацией
 
@@ -115,7 +116,7 @@ def get_wb_product_cards(headers):
                 if response.status_code == 429:
                     reset_time = int(response.headers.get('Retry-After', 60))
                     print(f"Лимит запросов. Пауза {reset_time} сек.")
-                    time.sleep(reset_time)
+                    await asyncio.sleep(reset_time)
                     continue
                 return None
 
@@ -139,7 +140,7 @@ def get_wb_product_cards(headers):
                 sleep_time = 60 - elapsed_time + 1
                 print(
                     f"Приближение к лимиту запросов. Пауза {sleep_time:.1f} сек.")
-                time.sleep(sleep_time)
+                await asyncio.sleep(sleep_time)
                 request_count = 0
                 start_time = time.time()
 
@@ -150,7 +151,7 @@ def get_wb_product_cards(headers):
     print(f"Получено карточек: {len(all_cards)}")
     return all_cards
 
-def get_orders_statistics(headers, nm_ids, date_from=None, date_to=None, state=None):
+async def get_orders_statistics(headers, nm_ids, date_from=None, date_to=None, state=None):
     """Возвращает статистику с возможностью возобновления обработки"""
     API_URL = "https://seller-analytics-api.wildberries.ru/api/v2/nm-report/detail/history"
     
@@ -239,12 +240,12 @@ def get_orders_statistics(headers, nm_ids, date_from=None, date_to=None, state=N
 
     return state['all_stats']
 
-def get_dict_orders(headers, date, state=None, cards=None):
+async def get_dict_orders(headers, date, state=None, cards=None):
     """Возвращает статистику по заказам с возможностью возобновления"""
     if not cards:
-        cards = get_wb_product_cards(headers)
+        cards = await get_wb_product_cards(headers)
     if not cards:
         return {}
     
     nm_ids = [product['nmID'] for product in cards]
-    return get_orders_statistics(headers, nm_ids, date, date, state)
+    return await get_orders_statistics(headers, nm_ids, date, date, state)

@@ -1,12 +1,12 @@
 from datetime import datetime
 import requests
-from time import sleep
+import asyncio
 import json
 from datetime import datetime, timedelta
 from collections import defaultdict
 import logging
 
-def safe_request(HEADERS, url, method='GET', json_data=None, params=None, max_retries=3):
+async def safe_request(HEADERS, url, method='GET', json_data=None, params=None, max_retries=3):
     for attempt in range(max_retries):
         try:
             if method == 'GET':
@@ -38,16 +38,16 @@ def safe_request(HEADERS, url, method='GET', json_data=None, params=None, max_re
 
         except requests.exceptions.RequestException as e:
             logging.error(f"Request error ({attempt+1}/{max_retries}): {e}")
-            time.sleep(2)
+            await asyncio.sleep(2)
     
     logging.error(f"Failed to request: {url}")
     return None
 
 
-def get_promotion_campaigns(HEADERS):
+async def get_promotion_campaigns(HEADERS):
     """Получение рекламных компаний с детализацией"""
     count_url = "https://advert-api.wildberries.ru/adv/v1/promotion/count"
-    count_data = safe_request(HEADERS, count_url, 'GET')
+    count_data = await safe_request(HEADERS, count_url, 'GET')
     if not count_data:
         return []
 
@@ -64,7 +64,7 @@ def get_promotion_campaigns(HEADERS):
         chunk = advert_ids[i:i+chunk_size]
 
         adverts_url = "https://advert-api.wildberries.ru/adv/v1/promotion/adverts"
-        campaigns = safe_request(HEADERS, adverts_url, 'POST', json_data=chunk)
+        campaigns = await safe_request(HEADERS, adverts_url, 'POST', json_data=chunk)
 
         if not campaigns:
             continue
@@ -104,10 +104,10 @@ def get_promotion_campaigns(HEADERS):
             })
     return result
 
-def get_expenses_per_nm(HEADERS, date=None):
+async def get_expenses_per_nm(HEADERS, date=None):
     """Возвращает расходы с возможностью возобновления обработки"""
     # Получаем список кампаний с nmIds
-    campaigns = get_promotion_campaigns(HEADERS)
+    campaigns = await get_promotion_campaigns(HEADERS)
     if not campaigns:
         return {}
 
@@ -135,14 +135,14 @@ def get_expenses_per_nm(HEADERS, date=None):
 
         # Отправляем запрос для группы кампаний
         fullstats_url = "https://advert-api.wildberries.ru/adv/v2/fullstats"
-        response = safe_request(HEADERS, fullstats_url,
+        response = await safe_request(HEADERS, fullstats_url,
                                 'POST', json_data=request_body)
 
         # Обработка 429 ошибки
         if isinstance(response, dict) and response.get('error') == 429:
             retry_after = response.get('retry_after', 20)
             logging.warning(f"Ads API 429 error. Retry after: {retry_after}")
-            sleep(retry_after)
+            await asyncio.sleep(retry_after)
             continue  # Повторяем с теми же данными
             
         if not response or not isinstance(response, list):

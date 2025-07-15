@@ -1,6 +1,7 @@
 import time
 import gspread
 import requests
+import asyncio
 import pandas as pd
 from datetime import datetime, timedelta
 from config import CONFIG_URL, CREDS
@@ -85,7 +86,7 @@ def get_client_data(sheet_id):
         print(f"Ошибка при получении данных из таблицы {sheet_id}: {e}")
         return {}
 
-def calculate_metrics(orders, ad_stats_df, client_sheet_id=None):
+async def calculate_metrics(orders, ad_stats_df, client_sheet_id=None):
     try:
         # Получаем все данные из таблицы клиента одним запросом
         client_data = {}
@@ -234,7 +235,7 @@ def get_user_cabinets(config_url: str, username: str) -> list:
         print(f"Ошибка при получении кабинетов пользователя: {e}")
         return []
 
-def update_google_sheet_multi(sheet_id, sheet_name, data_df, spreadsheet):
+async def update_google_sheet_multi(sheet_id, sheet_name, data_df, spreadsheet):
     if data_df.empty:
         print(f"[{sheet_name}] Нет данных для записи")
         return
@@ -380,7 +381,7 @@ def update_google_sheet_multi(sheet_id, sheet_name, data_df, spreadsheet):
         import traceback
         traceback.print_exc()
 
-def main_from_config(config_url: str, date_from=None, date_to=None):
+async def main_from_config(config_url: str, date_from=None, date_to=None):
     if not date_from:
         date_from = datetime.now() - timedelta(days=1)  # Минус 1 день
         date_from = date_from.replace(hour=0, minute=0, second=0,
@@ -408,15 +409,15 @@ def main_from_config(config_url: str, date_from=None, date_to=None):
                 orders = None
                 orders_state = None
                 max_retries = 10
-                cards = get_wb_product_cards(HEADERS)
+                cards = await get_wb_product_cards(HEADERS)
                 for attempt in range(max_retries):
-                    orders = get_dict_orders(HEADERS, date_from[:10], state=orders_state, cards=cards)
+                    orders = await get_dict_orders(HEADERS, date_from[:10], state=orders_state, cards=cards)
                     
                     # Если получили состояние для повтора
                     if isinstance(orders, dict) and orders.get('error') == 429:
-                        wait_time = orders.get('retry_after', 20)
+                        wait_time = 30
                         logging.info(f"Waiting {wait_time}s for orders API (attempt {attempt+1}/{max_retries})")
-                        time.sleep(wait_time)
+                        await asyncio.sleep(wait_time)
                         orders_state = orders.get('state')
                         continue
                         
@@ -432,23 +433,23 @@ def main_from_config(config_url: str, date_from=None, date_to=None):
                 # ad_state = None
                 max_retries = 3
                 for attempt in range(max_retries):
-                    ad_stats = get_expenses_per_nm(HEADERS, date_from)
+                    ad_stats = await get_expenses_per_nm(HEADERS, date_from)
                     
                     if isinstance(ad_stats, dict) and ad_stats.get('error') == 429:
                         wait_time = 30
                         logging.info(f"Waiting {wait_time}s for ads API (attempt {attempt+1}/{max_retries})")
-                        time.sleep(wait_time)
+                        await asyncio.sleep(wait_time)
                         continue
                         
                     break
                 
                 if isinstance(ad_stats, dict) and ad_stats.get('error') == 429:
                     return pd.DataFrame(), "429_error"
-                metrics_df = calculate_metrics(
+                metrics_df = await calculate_metrics(
                     orders, ad_stats, sheet_id)
 
                 if not metrics_df.empty:
-                    update_google_sheet_multi(
+                    await update_google_sheet_multi(
                         sheet_id, sheet_name, metrics_df, spreadsheet)
                 else:
                     print(f"[{sheet_name}] Нет данных для записи")
@@ -456,7 +457,7 @@ def main_from_config(config_url: str, date_from=None, date_to=None):
     except Exception as e:
         print(f"Критическая ошибка: {e}")
 
-def calculate_metrics_for_bot(orders, ad_stats_df, client_sheet_id=None):
+async def calculate_metrics_for_bot(orders, ad_stats_df, client_sheet_id=None):
     try:
         # Получаем все данные из таблицы клиента одним запросом
         client_data = {}
@@ -521,7 +522,7 @@ def calculate_metrics_for_bot(orders, ad_stats_df, client_sheet_id=None):
         traceback.print_exc()
         return pd.DataFrame()
 
-def generate_summary(df):
+async def generate_summary(df):
     """Генерирует краткую сводку по отчету"""
     if df.empty:
         return "Нет данных для формирования сводки"
@@ -543,7 +544,7 @@ def generate_summary(df):
         print(f"Ошибка при формировании сводки: {e}")
         return "Не удалось сформировать сводку"
 
-def generate_report(sheet_user: str, sheet_name: str, config_url: str, date_from=None, date_to=None) -> tuple:
+async def generate_report(sheet_user: str, sheet_name: str, config_url: str, date_from=None, date_to=None) -> tuple:
     if not date_from:
         date_from = datetime.now().replace(hour=0, minute=0, second=0,
                                            microsecond=0).strftime('%Y-%m-%dT%H:%M:%S')
@@ -563,15 +564,15 @@ def generate_report(sheet_user: str, sheet_name: str, config_url: str, date_from
                     orders = None
                     orders_state = None
                     max_retries = 10
-                    cards = get_wb_product_cards(HEADERS)
+                    cards = await get_wb_product_cards(HEADERS)
                     for attempt in range(max_retries):
-                        orders = get_dict_orders(HEADERS, date_from[:10], state=orders_state, cards=cards)
+                        orders = await get_dict_orders(HEADERS, date_from[:10], state=orders_state, cards=cards)
                         
                         # Если получили состояние для повтора
                         if isinstance(orders, dict) and orders.get('error') == 429:
-                            wait_time = orders.get('retry_after', 20)
+                            wait_time = 30
                             logging.info(f"Waiting {wait_time}s for orders API (attempt {attempt+1}/{max_retries})")
-                            time.sleep(wait_time)
+                            await asyncio.sleep(wait_time)
                             orders_state = orders.get('state')
                             continue
                             
@@ -587,12 +588,12 @@ def generate_report(sheet_user: str, sheet_name: str, config_url: str, date_from
                     ad_stats = None
                     ad_state = None
                     for attempt in range(max_retries):
-                        ad_stats = get_expenses_per_nm(HEADERS, date_from)
+                        ad_stats = await get_expenses_per_nm(HEADERS, date_from)
                         
                         if isinstance(ad_stats, dict) and ad_stats.get('error') == 429:
-                            wait_time = ad_stats.get('retry_after', 20)
+                            wait_time = 30
                             logging.info(f"Waiting {wait_time}s for ads API (attempt {attempt+1}/{max_retries})")
-                            time.sleep(wait_time)
+                            await asyncio.sleep(wait_time)
                             continue
                             
                         break
@@ -601,8 +602,8 @@ def generate_report(sheet_user: str, sheet_name: str, config_url: str, date_from
                         return pd.DataFrame(), "429_error"
                     
                     # Формирование отчета
-                    metrics_df = calculate_metrics_for_bot(orders, ad_stats, sheet_id)
-                    summary = generate_summary(metrics_df)
+                    metrics_df = await calculate_metrics_for_bot(orders, ad_stats, sheet_id)
+                    summary = await generate_summary(metrics_df)
 
                     return metrics_df[[
                         'Артикул продавца',
@@ -617,4 +618,4 @@ def generate_report(sheet_user: str, sheet_name: str, config_url: str, date_from
         return pd.DataFrame(), ""
 
 if __name__ == "__main__":
-    main_from_config(CONFIG_URL)
+    asyncio.run(main_from_config(CONFIG_URL))
