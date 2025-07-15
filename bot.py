@@ -345,7 +345,7 @@ async def process_cabinet_api_key(message: types.Message, state: FSMContext):
 async def process_new_cabinet_name(message: types.Message, state: FSMContext):
     cabinet_name = message.text.strip()
     if not validate_cabinet_name(cabinet_name):
-        await message.answer("❌ Название кабинета должно быть от 2 до 50 символов!")
+        await message.answer("❌ Название кабинета должно начинаться с буквы, состоять только из букв и цифр и быть короче 50 символов!")
         return
 
     async with state.proxy() as data:
@@ -396,7 +396,7 @@ async def process_registration_api_key(message: types.Message, state: FSMContext
 async def process_registration_cabinet_name(message: types.Message, state: FSMContext):
     cabinet_name = message.text.strip()
     if not validate_cabinet_name(cabinet_name):
-        await message.answer("❌ Название кабинета должно быть от 2 до 50 символов!")
+        await message.answer("❌ Название кабинета должно начинаться с буквы, состоять только из букв и цифр и быть короче 50 символов!")
         return
 
     async with state.proxy() as data:
@@ -980,7 +980,7 @@ async def process_new_cabinet_name2(message: types.Message, state: FSMContext):
         return
 
     if not validate_cabinet_name(new_name):
-        await message.answer("❌ Название кабинета должно быть от 2 до 50 символов!")
+        await message.answer("❌ Название кабинета должно начинаться с буквы, состоять только из букв и цифр и быть короче 50 символов!")
         return
 
     async with state.proxy() as data:
