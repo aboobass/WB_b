@@ -90,7 +90,11 @@ def calculate_metrics(orders, ad_stats_df, client_sheet_id=None):
         for nmId, values in orders.items():
             # print(nmId, values)
             if values['ordersCount'] != 0:
-                result.append([nmId, client_data[nmId]['vendorCode'], values['ordersCount'], values['costs'], values['gross_profit'], values['ordersSumRub'], ' ', values['views'], values['auto_ctr'], values['auction_ctr'], values.get('addToCartConversion', 0), values.get('cartToOrderConversion', 0)])
+                if nmId in client_data:
+                    vendorCode = client_data[nmId]['vendorCode']
+                else:
+                    vendorCode = ''
+                result.append([nmId, vendorCode, values['ordersCount'], values['costs'], values['gross_profit'], values['ordersSumRub'], ' ', values['views'], values['auto_ctr'], values['auction_ctr'], values.get('addToCartConversion', 0), values.get('cartToOrderConversion', 0)])
         result = pd.DataFrame(result, columns=['nmId', 'vendorCode', 'ordersCount', 'costs', 'gross_profit', 'ordersSumRub', 'void', 'views', 'auto_ctr', 'auction_ctr', 'addToCartConversion', 'cartToOrderConversion'])
         for index, row in result.iterrows():
             if pd.notna(result.at[index, 'costs']) and pd.notna(result.at[index, 'gross_profit']):

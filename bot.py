@@ -88,7 +88,7 @@ def get_cancel_admin_keyboard():
     return kb
 
 def validate_cabinet_name(name: str) -> bool:
-    return name.isidentifier() and (2 <= len(name.strip()) <= 50)
+    return name.isidentifier() and (1 <= len(name.strip()) <= 50)
 
 def validate_wb_api_key(api_key: str) -> bool:
     url_stat = "https://seller-analytics-api.wildberries.ru/ping"
