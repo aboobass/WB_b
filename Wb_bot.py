@@ -17,49 +17,8 @@ HEADERS = {}
 # Глобальная переменная для API ключа WB
 WB_API_KEY = ""
 
-def safe_api_call(url, params=None, max_retries=5):
-    retries = 0
-    while retries < max_retries:
-        try:
-            response = requests.get(
-                url, headers=HEADERS, params=params, timeout=30)
-            response.raise_for_status()
-            return response.json() if response.content else []
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 429:
-                return {"error": 429}
-            else:
-                print(
-                    f"HTTP ошибка при запросе {url}: {e.response.status_code} - {e.response.reason}")
-                return []
-        except requests.exceptions.RequestException as e:
-            print(f"Ошибка соединения при запросе {url}: {str(e)}")
-            return []
-        except Exception as e:
-            print(f"Неизвестная ошибка при запросе {url}: {str(e)}")
-            return []
-    print(
-        f"Достигнуто максимальное количество попыток ({max_retries}) для {url}")
-    return []
 
-def get_wb_orders(date_from, date_to):
-    try:
-        url = f"{WB_STAT_URL}orders"
-        params = {'dateFrom': date_from, 'dateTo': date_to, 'flag': 1}
-
-        orders = safe_api_call(url, params)
-        print(f"Всего заказов получено: {len(orders)}")
-
-        # Фильтрация отмененных заказов
-        orders = [order for order in orders if not order.get(
-            'isCancel', False)]
-
-        return pd.DataFrame(orders) if orders else pd.DataFrame()
-    except Exception as e:
-        print(f"Ошибка при обработке заказов: {str(e)}")
-        return pd.DataFrame()
-
-def get_client_data(sheet_id):
+async def get_client_data(sheet_id):
     try:
         client = gspread.authorize(CREDS)
         spreadsheet = client.open_by_key(sheet_id)
@@ -91,7 +50,7 @@ async def calculate_metrics(orders, ad_stats_df, client_sheet_id=None):
         # Получаем все данные из таблицы клиента одним запросом
         client_data = {}
         if client_sheet_id:
-            client_data = get_client_data(client_sheet_id)
+            client_data = await get_client_data(client_sheet_id)
 
         for nmId in orders.keys():
             if nmId in ad_stats_df:
@@ -182,7 +141,7 @@ async def calculate_metrics(orders, ad_stats_df, client_sheet_id=None):
         traceback.print_exc()
         return pd.DataFrame()
 
-def read_config(config_sheet_url: str) -> dict:
+async def read_config(config_sheet_url: str) -> dict:
     """Чтение конфигурации: {user: [(sheet_id, wb_api_key, sheet_name)]}"""
     client = gspread.authorize(CREDS)
     sheet = client.open_by_url(config_sheet_url).sheet1
@@ -393,7 +352,7 @@ async def main_from_config(config_url: str, date_from=None, date_to=None):
     print(f"\nОбработка данных за период: {date_from} - {date_to}")
 
     try:
-        configs = read_config(config_url)
+        configs = await read_config(config_url)
         for user, user_configs in configs.items():
             print(f"\n--- Обработка пользователя: {user} ---")
             client = gspread.authorize(CREDS)
@@ -462,7 +421,7 @@ async def calculate_metrics_for_bot(orders, ad_stats_df, client_sheet_id=None):
         # Получаем все данные из таблицы клиента одним запросом
         client_data = {}
         if client_sheet_id:
-            client_data = get_client_data(client_sheet_id)
+            client_data = await get_client_data(client_sheet_id)
 
         for nmId in orders.keys():
             if nmId in ad_stats_df:
@@ -552,7 +511,7 @@ async def generate_report(sheet_user: str, sheet_name: str, config_url: str, dat
         date_to = datetime.now().strftime('%Y-%m-%dT%H:%M:%S')
 
     try:
-        configs = read_config(config_url)
+        configs = await read_config(config_url)
         for user, user_configs in configs.items():
             for sheet_id, wb_key, config_sheet_name in user_configs:
                 if config_sheet_name == sheet_name and user == sheet_user:
