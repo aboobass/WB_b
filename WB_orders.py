@@ -207,7 +207,7 @@ async def get_orders_statistics(headers, nm_ids, date_from=None, date_to=None, s
                 state['retry_count'] = 0  # Сбрасываем счетчик повторов
 
             elif response.status_code == 429:
-                retry_after = int(response.headers.get('Retry-After', 20))
+                retry_after = 20
                 logging.warning(f"429 error. Retry after: {retry_after}")
                 
                 # Увеличиваем счетчик повторов

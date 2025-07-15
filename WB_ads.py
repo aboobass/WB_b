@@ -18,7 +18,7 @@ async def safe_request(HEADERS, url, method='GET', json_data=None, params=None, 
 
             # Обработка 429
             if response.status_code == 429:
-                retry_after = int(response.headers.get('Retry-After', 20))
+                retry_after = 20
                 logging.warning(f"429 error. Retry after: {retry_after}")
                 return {
                     'error': 429,
@@ -140,7 +140,7 @@ async def get_expenses_per_nm(HEADERS, date=None):
 
         # Обработка 429 ошибки
         if isinstance(response, dict) and response.get('error') == 429:
-            retry_after = response.get('retry_after', 20)
+            retry_after = 20
             logging.warning(f"Ads API 429 error. Retry after: {retry_after}")
             await asyncio.sleep(retry_after)
             continue  # Повторяем с теми же данными
