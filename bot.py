@@ -6,6 +6,7 @@ import logging
 import json
 import os
 import gspread
+import time
 import requests
 import pandas as pd
 import tempfile
@@ -340,37 +341,6 @@ async def process_cabinet_api_key(message: types.Message, state: FSMContext):
     await AddCabinetStates.next()
     await msg.edit_text("✅ Ключ принят! Теперь введите название для нового кабинета:", reply_markup=get_cancel_keyboard())
 
-@dp.message_handler(state=AddCabinetStates.WAITING_CABINET_NAME)
-async def process_new_cabinet_name(message: types.Message, state: FSMContext):
-    cabinet_name = message.text.strip()
-    if not validate_cabinet_name(cabinet_name):
-        await message.answer("❌ Название кабинета должно быть от 2 до 50 символов!")
-        return
-
-    async with state.proxy() as data:
-        username = data['username']
-        api_key = data['api_key']
-
-    wait_message = await message.answer("🔄 Ожидайте 30 сек, идёт добавление кабинета и обновление артикулов...", reply_markup=main_menu_keyboard)
-    try:
-        success = await add_cabinet_to_user(username, api_key, cabinet_name)
-        if success:
-            response = f"✅ Кабинет '{cabinet_name}' успешно добавлен! Артикулы добавлены в вашу таблицу."
-        else:
-            response = "❌ Не удалось добавить кабинет. Обратитесь к администратору."
-        
-        await message.answer(response)
-        await show_main_menu(message.chat.id)
-    except Exception as e:
-        logging.error(f"Ошибка при добавлении кабинета: {e}")
-        await message.answer("❌ Произошла ошибка при добавлении кабинета")
-    finally:
-        await state.finish()
-        try:
-            await bot.delete_message(message.chat.id, wait_message.message_id)
-        except:
-            pass
-
 @dp.message_handler(state=UserRegistrationStates.WAITING_API_KEY)
 async def process_registration_api_key(message: types.Message, state: FSMContext):
     api_key = message.text.strip()
@@ -404,17 +374,17 @@ async def process_registration_cabinet_name(message: types.Message, state: FSMCo
     username = f"user_{message.from_user.id}"
 
     # Получаем свободную таблицу из пула
-    spreadsheet_info = await get_available_spreadsheet(username)
+    spreadsheet_info = get_available_spreadsheet(username)
     if not spreadsheet_info:
         await message.answer("❌ Нет доступных таблиц. Обратитесь к администратору.")
         await state.finish()
         return
 
     # Предоставляем доступ
-    await grant_spreadsheet_access(spreadsheet_info['id'])
+    grant_spreadsheet_access(spreadsheet_info['id'])
 
     # Добавляем пользователя в конфигурацию
-    await add_user_to_config(
+    add_user_to_config(
         username,
         api_key,
         cabinet_name,
@@ -428,7 +398,7 @@ async def process_registration_cabinet_name(message: types.Message, state: FSMCo
 
     # Инициализируем таблицу
     spreadsheet = gc.open_by_url(spreadsheet_info['url'])
-    success = await add_cabinet_sheet(spreadsheet, cabinet_name, api_key)
+    success = add_cabinet_sheet(spreadsheet, cabinet_name, api_key)
     
     if success:
         await message.answer(
@@ -613,7 +583,7 @@ async def process_report_callback(callback: types.CallbackQuery):
 
     await show_main_menu(callback.message.chat.id)
 
-async def add_articles_to_sheet(worksheet, articles):
+def add_articles_to_sheet(worksheet, articles):
     """Добавляет артикулы и баркоды в лист таблицы с сортировкой"""
     if not articles:
         return
@@ -629,14 +599,14 @@ async def add_articles_to_sheet(worksheet, articles):
         batch = values[i:i+batch_size]
         try:
             worksheet.append_rows(batch)
-            await asyncio.sleep(1)
+            time.sleep(1)
         except Exception as e:
             logging.error(f"Ошибка добавления артикулов: {e}")
 
     # Сортируем данные после вставки
-    await sort_sheet(worksheet)
+    sort_sheet(worksheet)
 
-async def sort_sheet(worksheet):
+def sort_sheet(worksheet):
     """Сортирует данные в листе по кабинету и артикулу продавца"""
     try:
         # Получаем все данные
@@ -713,7 +683,7 @@ def extract_spreadsheet_id(url: str) -> str:
     return url
 
 
-async def get_available_spreadsheet(username: str) -> dict:
+def get_available_spreadsheet(username: str) -> dict:
     """Возвращает свободную таблицу из пула и помечает ее как занятую"""
     try:
         # Открываем таблицу с пулом таблиц
@@ -733,14 +703,14 @@ async def get_available_spreadsheet(username: str) -> dict:
         logging.error(f"Ошибка получения таблицы из пула: {e}")
         return None
 
-async def grant_spreadsheet_access(spreadsheet_id: str, email=""):
+def grant_spreadsheet_access(spreadsheet_id: str, email=""):
     try:
         spreadsheet = gc.open_by_key(spreadsheet_id)
         spreadsheet.share(None, perm_type='anyone', role='writer')
     except Exception as e:
         logging.error(f"Ошибка предоставления доступа: {e}")
 
-async def add_user_to_config(username: str, api_key: str, cabinet_name: str, spreadsheet_url: str):
+def add_user_to_config(username: str, api_key: str, cabinet_name: str, spreadsheet_url: str):
     try:
         worksheet = gc.open_by_key(CONFIG_SHEET_ID).sheet1
         worksheet.append_row([username, api_key, cabinet_name, spreadsheet_url])
@@ -748,7 +718,7 @@ async def add_user_to_config(username: str, api_key: str, cabinet_name: str, spr
     except Exception as e:
         logging.error(f"Ошибка добавления пользователя в конфиг: {e}")
 
-async def add_cabinet_sheet(spreadsheet, cabinet_name: str, api_key: str):
+def add_cabinet_sheet(spreadsheet, cabinet_name: str, api_key: str):
     try:
         # Пытаемся получить лист "Маржа"
         try:
@@ -792,7 +762,7 @@ async def add_cabinet_sheet(spreadsheet, cabinet_name: str, api_key: str):
             # worksheet.freeze(rows=1)
         
         # Добавляем артикулы
-        articles = await get_wb_articles(api_key)
+        articles = get_wb_articles(api_key)
         articles_with_cabinet = [
             [cabinet_name, str(nmId), str(supplierArticle), "", ""]
             for (nmId, supplierArticle) in articles
@@ -803,14 +773,14 @@ async def add_cabinet_sheet(spreadsheet, cabinet_name: str, api_key: str):
         for i in range(0, len(articles_with_cabinet), batch_size):
             batch = articles_with_cabinet[i:i + batch_size]
             worksheet.append_rows(batch)
-            await asyncio.sleep(1) 
-        
+            time.sleep(1) 
         return True
     except Exception as e:
         logging.error(f"Ошибка инициализации таблицы: {e}")
         return False
 
-async def add_cabinet_to_user(username: str, api_key: str, cabinet_name: str):
+
+def add_cabinet_to_user(username: str, api_key: str, cabinet_name: str):
     try:
         spreadsheet_url = cache.user_spreadsheet_urls.get(username)
         if not spreadsheet_url:
@@ -824,13 +794,13 @@ async def add_cabinet_to_user(username: str, api_key: str, cabinet_name: str):
         
         # Добавляем данные в таблицу пользователя
         spreadsheet = gc.open_by_url(spreadsheet_url)
-        return await add_cabinet_sheet(spreadsheet, cabinet_name, api_key)
+        return add_cabinet_sheet(spreadsheet, cabinet_name, api_key)
     except Exception as e:
         logging.error(f"Ошибка добавления кабинета: {e}")
         return False
 
 
-async def get_cabinet_api_key(username: str, cabinet_name: str) -> str:
+def get_cabinet_api_key(username: str, cabinet_name: str) -> str:
     try:
         worksheet = gc.open_by_key(CONFIG_SHEET_ID).sheet1
         records = worksheet.get_all_values()
@@ -983,7 +953,7 @@ async def process_new_cabinet_name(message: types.Message, state: FSMContext):
         username = data['username']
 
     wait_message = await message.answer("🔄 Ожидайте 30 сек, идёт переименование кабинета", reply_markup=main_menu_keyboard)
-    success = await update_cabinet_name(username, old_name, new_name)
+    success = update_cabinet_name(username, old_name, new_name)
     if success:
         await message.answer(f"✅ Кабинет успешно переименован: {old_name} → {new_name}")
         cache.config_cache = None
@@ -996,7 +966,7 @@ async def process_new_cabinet_name(message: types.Message, state: FSMContext):
     except:
         pass
 
-async def update_cabinet_name(username: str, old_name: str, new_name: str) -> bool:
+def update_cabinet_name(username: str, old_name: str, new_name: str) -> bool:
     try:
         worksheet = gc.open_by_key(CONFIG_SHEET_ID).sheet1
         records = worksheet.get_all_values()
@@ -1042,7 +1012,7 @@ async def delete_cabinet_callback(callback: types.CallbackQuery, state: FSMConte
         # Если не удалось отредактировать, отправляем новое сообщение    
         wait_message = await callback.message.answer("🔄 Ожидайте 30 сек, идёт удаление кабинета...", reply_markup=main_menu_keyboard)
     
-    success = await delete_cabinet(username, cabinet_name)
+    success = delete_cabinet(username, cabinet_name)
     if success:
         await callback.message.answer(f"✅ Кабинет '{cabinet_name}' успешно удалён")
         cache.config_cache = None
@@ -1056,7 +1026,7 @@ async def delete_cabinet_callback(callback: types.CallbackQuery, state: FSMConte
     except:
         pass
 
-async def delete_cabinet(username: str, cabinet_name: str) -> bool:
+def delete_cabinet(username: str, cabinet_name: str) -> bool:
     try:
         worksheet = gc.open_by_key(CONFIG_SHEET_ID).sheet1
         records = worksheet.get_all_values()
@@ -1138,7 +1108,7 @@ async def refresh_articles_callback(callback: types.CallbackQuery, state: FSMCon
         cabinet_name = data['cabinet']
         username = data['username']
 
-    api_key = await get_cabinet_api_key(username, cabinet_name)
+    api_key = get_cabinet_api_key(username, cabinet_name)
     if not api_key:
         await callback.answer("❌ Не удалось получить API ключ для кабинета")
         await state.finish()
@@ -1166,13 +1136,13 @@ async def refresh_articles_callback(callback: types.CallbackQuery, state: FSMCon
         spreadsheet = gc.open_by_url(spreadsheet_url)
         # worksheet = spreadsheet.get_worksheet(0)
         worksheet = spreadsheet.worksheet("Маржа")
-        existing_pairs = await get_actual_articles(worksheet)
+        existing_pairs = get_actual_articles(worksheet)
         new_pairs = set(await get_wb_articles(api_key))
         new_pairs_with_cabinet = set([(cabinet_name, nmId, supplierArticle)
                                       for (nmId, supplierArticle) in new_pairs])
         missing_pairs = list(new_pairs_with_cabinet - existing_pairs)
         if missing_pairs:
-            await add_articles_to_sheet(worksheet, missing_pairs)
+            add_articles_to_sheet(worksheet, missing_pairs)
             await bot.send_message(callback.from_user.id, f"✅ Добавлено {len(missing_pairs)} новых пар артикулов и баркодов!")
         else:
             await bot.send_message(callback.from_user.id, "ℹ️ Все артикулы и баркоды уже актуальны!")
@@ -1186,7 +1156,7 @@ async def refresh_articles_callback(callback: types.CallbackQuery, state: FSMCon
     await state.finish()
     await show_main_menu(callback.message.chat.id)
 
-async def get_actual_articles(worksheet):
+def get_actual_articles(worksheet):
     existing_pairs = set()
     # Пропускаем первые 3 строки (инструкция, пустая, заголовки)
     records = worksheet.get_all_values()[3:]

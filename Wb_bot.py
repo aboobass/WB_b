@@ -16,7 +16,7 @@ HEADERS = {}
 WB_API_KEY = ""
 
 
-async def get_client_data(sheet_id):
+def get_client_data(sheet_id):
     try:
         client = gspread.authorize(CREDS)
         spreadsheet = client.open_by_key(sheet_id)
@@ -43,12 +43,12 @@ async def get_client_data(sheet_id):
         print(f"Ошибка при получении данных из таблицы {sheet_id}: {e}")
         return {}
 
-async def calculate_metrics(orders, ad_stats_df, client_sheet_id=None):
+def calculate_metrics(orders, ad_stats_df, client_sheet_id=None):
     try:
         # Получаем все данные из таблицы клиента одним запросом
         client_data = {}
         if client_sheet_id:
-            client_data = await get_client_data(client_sheet_id)
+            client_data = get_client_data(client_sheet_id)
 
         for nmId in orders.keys():
             if nmId in ad_stats_df:
@@ -139,7 +139,7 @@ async def calculate_metrics(orders, ad_stats_df, client_sheet_id=None):
         traceback.print_exc()
         return pd.DataFrame()
 
-async def read_config(config_sheet_url: str) -> dict:
+def read_config(config_sheet_url: str) -> dict:
     """Чтение конфигурации: {user: [(sheet_id, wb_api_key, sheet_name)]}"""
     client = gspread.authorize(CREDS)
     sheet = client.open_by_url(config_sheet_url).sheet1
@@ -192,7 +192,7 @@ def get_user_cabinets(config_url: str, username: str) -> list:
         print(f"Ошибка при получении кабинетов пользователя: {e}")
         return []
 
-async def update_google_sheet_multi(sheet_id, sheet_name, data_df, spreadsheet):
+def update_google_sheet_multi(sheet_id, sheet_name, data_df, spreadsheet):
     if data_df.empty:
         print(f"[{sheet_name}] Нет данных для записи")
         return
@@ -350,7 +350,7 @@ async def main_from_config(config_url: str, date_from=None, date_to=None):
     print(f"\nОбработка данных за период: {date_from} - {date_to}")
 
     try:
-        configs = await read_config(config_url)
+        configs = read_config(config_url)
         for user, user_configs in configs.items():
             print(f"\n--- Обработка пользователя: {user} ---")
             client = gspread.authorize(CREDS)
@@ -402,11 +402,11 @@ async def main_from_config(config_url: str, date_from=None, date_to=None):
                 
                 if isinstance(ad_stats, dict) and ad_stats.get('error') == 429:
                     return pd.DataFrame(), "429_error"
-                metrics_df = await calculate_metrics(
+                metrics_df = calculate_metrics(
                     orders, ad_stats, sheet_id)
 
                 if not metrics_df.empty:
-                    await update_google_sheet_multi(
+                    update_google_sheet_multi(
                         sheet_id, sheet_name, metrics_df, spreadsheet)
                 else:
                     print(f"[{sheet_name}] Нет данных для записи")
@@ -414,12 +414,12 @@ async def main_from_config(config_url: str, date_from=None, date_to=None):
     except Exception as e:
         print(f"Критическая ошибка: {e}")
 
-async def calculate_metrics_for_bot(orders, ad_stats_df, client_sheet_id=None):
+def calculate_metrics_for_bot(orders, ad_stats_df, client_sheet_id=None):
     try:
         # Получаем все данные из таблицы клиента одним запросом
         client_data = {}
         if client_sheet_id:
-            client_data = await get_client_data(client_sheet_id)
+            client_data = get_client_data(client_sheet_id)
 
         for nmId in orders.keys():
             if nmId in ad_stats_df:
@@ -458,28 +458,30 @@ async def calculate_metrics_for_bot(orders, ad_stats_df, client_sheet_id=None):
                                                   result.at[index, 'costs']).round(2)
             else:
                 result.at[index, 'net_profit'] = None
-
-        result = result.rename(columns={
-            'nmId': 'Артикул WB',
-            'vendorCode': 'Артикул продавца',
-            'ordersCount': 'Кол-во заказов',
-            'costs': 'Расходы РК',
-            'net_profit': 'Прибыль'
-        })
-        return result[[
-            'Артикул WB',
-            'Артикул продавца',
-            'Кол-во заказов',
-            'Расходы РК',
-            'Прибыль'
-        ]]
+        try:
+            result = result.rename(columns={
+                'nmId': 'Артикул WB',
+                'vendorCode': 'Артикул продавца',
+                'ordersCount': 'Кол-во заказов',
+                'costs': 'Расходы РК',
+                'net_profit': 'Прибыль'
+            })
+            return result[[
+                'Артикул WB',
+                'Артикул продавца',
+                'Кол-во заказов',
+                'Расходы РК',
+                'Прибыль'
+            ]]
+        except:
+            return pd.DataFrame()
     except Exception as e:
         print(f"Ошибка при расчете метрик: {str(e)}")
         import traceback
         traceback.print_exc()
         return pd.DataFrame()
 
-async def generate_summary(df):
+def generate_summary(df):
     """Генерирует краткую сводку по отчету"""
     if df.empty:
         return "Нет данных для формирования сводки"
@@ -509,7 +511,7 @@ async def generate_report(sheet_user: str, sheet_name: str, config_url: str, dat
         date_to = datetime.now().strftime('%Y-%m-%dT%H:%M:%S')
 
     try:
-        configs = await read_config(config_url)
+        configs = read_config(config_url)
         for user, user_configs in configs.items():
             for sheet_id, wb_key, config_sheet_name in user_configs:
                 if config_sheet_name == sheet_name and user == sheet_user:
@@ -559,15 +561,18 @@ async def generate_report(sheet_user: str, sheet_name: str, config_url: str, dat
                         return pd.DataFrame(), "429_error"
                     
                     # Формирование отчета
-                    metrics_df = await calculate_metrics_for_bot(orders, ad_stats, sheet_id)
-                    summary = await generate_summary(metrics_df)
-
-                    return metrics_df[[
-                        'Артикул продавца',
-                        'Кол-во заказов',
-                        'Расходы РК',
-                        'Прибыль'
-                    ]], summary
+                    metrics_df = calculate_metrics_for_bot(orders, ad_stats, sheet_id)
+                    summary = generate_summary(metrics_df)
+                    try:
+                        result = metrics_df[[
+                            'Артикул продавца',
+                            'Кол-во заказов',
+                            'Расходы РК',
+                            'Прибыль'
+                        ]]
+                    except:
+                        result = pd.DataFrame()
+                    return result, summary
 
         return pd.DataFrame(), ""
     except Exception as e:
