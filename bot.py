@@ -548,11 +548,13 @@ async def send_report_as_file(chat_id: int, username: str, cabinet_name: str, df
         file_name = f"Отчет_{cabinet_name}_{timestamp}.xlsx"
         excel_file = InputFile(file_path, filename=file_name)
 
+        logging.info('Отправляю файл')
         await bot.send_document(
             chat_id=chat_id,
             document=excel_file,
             caption=f"📊 Отчет по ЛК: {cabinet_name}"
         )
+        logging.info('Файл отправлен')
         os.unlink(file_path)
     except Exception as e:
         logging.error(f"Ошибка создания Excel-отчета: {e}")
