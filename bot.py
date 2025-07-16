@@ -8,6 +8,7 @@ import os
 import gspread
 import time
 import requests
+import aiohttp
 import pandas as pd
 import tempfile
 from aiogram import Bot, Dispatcher, types
@@ -90,23 +91,29 @@ def get_cancel_admin_keyboard():
 def validate_cabinet_name(name: str) -> bool:
     return name.isidentifier() and (1 <= len(name.strip()) <= 50)
 
-def validate_wb_api_key(api_key: str) -> bool:
+async def validate_wb_api_key(api_key: str) -> bool:
     url_stat = "https://seller-analytics-api.wildberries.ru/ping"
     url_ads = "https://advert-api.wildberries.ru/ping"
     headers = {"Authorization": api_key}
 
-    try:
-        response_stat = requests.get(url_stat, headers=headers)
-    except Exception as e:
-        logging.error(f"Ошибка проверки API ключа: {e}")
-        return False
-    try:
-        response_ads = requests.get(url_ads, headers=headers)
-    except Exception as e:
-        logging.error(f"Ошибка проверки API ключа: {e}")
-        return False
-    
-    return response_stat.status_code == 200 and response_ads.status_code == 200
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.get(url_stat, headers=headers) as response_stat:
+                if response_stat.status != 200:
+                    return False
+        except Exception as e:
+            logging.error(f"Ошибка проверки API ключа (stat): {e}")
+            return False
+
+        try:
+            async with session.get(url_ads, headers=headers) as response_ads:
+                if response_ads.status != 200:
+                    return False
+        except Exception as e:
+            logging.error(f"Ошибка проверки API ключа (ads): {e}")
+            return False
+
+    return True
 
 class UserDataCache:
     def __init__(self):
@@ -331,7 +338,7 @@ async def process_cabinet_api_key(message: types.Message, state: FSMContext):
         return
 
     msg = await message.answer("⏳ Ожидайте 30 секунд, идёт обработка...")
-    if not validate_wb_api_key(api_key):
+    if not (await validate_wb_api_key(api_key)):
         await message.answer("❌ Неверный API ключ! Проверьте ключ и попробуйте снова.")
         return
 
@@ -381,7 +388,7 @@ async def process_registration_api_key(message: types.Message, state: FSMContext
         return
 
     msg = await message.answer("⏳ Ожидайте 30 секунд, идёт обработка...")
-    if not validate_wb_api_key(api_key):
+    if not (await validate_wb_api_key(api_key)):
         await message.answer("❌ Неверный API ключ! Проверьте ключ и попробуйте снова.")
         return
 

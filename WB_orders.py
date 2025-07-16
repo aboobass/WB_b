@@ -1,10 +1,10 @@
-import requests
+import aiohttp
 import json
 import time
 import asyncio
 import logging
 
-def get_wb_grouped_stats(target_date, headers):
+async def get_wb_grouped_stats(target_date, headers):
     """
     Получает статистику по всем карточкам товаров за указанную дату
 
@@ -28,45 +28,44 @@ def get_wb_grouped_stats(target_date, headers):
     }
 
     try:
-        # Отправка запроса
-        response = requests.post(
-            API_URL,
-            data=json.dumps(payload),
-            headers=headers
-        )
+        async with aiohttp.ClientSession(headers=headers) as session:
+            async with session.post(
+                API_URL,
+                data=json.dumps(payload),
+                timeout=30
+            ) as response:
+                # Проверка успешности запроса
+                if response.status != 200:
+                    print(f"Ошибка API ({response.status}): {await response.text()}")
+                    return None
 
-        # Проверка успешности запроса
-        if response.status_code != 200:
-            print(f"Ошибка API ({response.status_code}): {response.text}")
-            return None
+                data = await response.json()
 
-        data = response.json()
+                # Проверка на ошибки в ответе
+                if data.get("error"):
+                    print(
+                        f"Ошибка в ответе API: {data.get('errorText', 'Неизвестная ошибка')}")
+                    return None
 
-        # Проверка на ошибки в ответе
-        if data.get("error"):
-            print(
-                f"Ошибка в ответе API: {data.get('errorText', 'Неизвестная ошибка')}")
-            return None
+                # Извлечение статистики
+                stats = data.get("data", [])
 
-        # Извлечение статистики
-        stats = data.get("data", [])
+                if not stats:
+                    print(f"Нет данных за {target_date}")
+                    return None
 
-        if not stats:
-            print(f"Нет данных за {target_date}")
-            return None
+                # Получение истории из первой группы (все карточки)
+                group_data = stats[0]
+                daily_stats = group_data.get("history", [])
 
-        # Получение истории из первой группы (все карточки)
-        group_data = stats[0]
-        daily_stats = group_data.get("history", [])
+                if not daily_stats:
+                    print(f"Нет статистики за {target_date}")
+                    return None
 
-        if not daily_stats:
-            print(f"Нет статистики за {target_date}")
-            return None
+                # Возвращаем статистику за запрошенный день
+                return daily_stats[0]
 
-        # Возвращаем статистику за запрошенный день
-        return daily_stats[0]
-
-    except requests.exceptions.RequestException as e:
+    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
         print(f"Ошибка соединения: {e}")
         return None
     except json.JSONDecodeError:
@@ -89,61 +88,62 @@ async def get_wb_product_cards(headers):
     start_time = time.time()
 
     try:
-        while True:
-            # Формируем тело запроса с пагинацией
-            payload = {
-                "settings": {
-                    "filter": {"withPhoto": -1},
-                    "limit": 100
-                }
-            }
-
-            # Добавляем курсор для пагинации (кроме первого запроса)
-            if cursor:
-                payload["settings"]["cursor"] = {
-                    "updatedAt": cursor["updatedAt"],
-                    "nmID": cursor["nmID"]
+        async with aiohttp.ClientSession(headers=headers) as session:
+            while True:
+                # Формируем тело запроса с пагинацией
+                payload = {
+                    "settings": {
+                        "filter": {"withPhoto": -1},
+                        "limit": 100
+                    }
                 }
 
-            # Отправляем запрос
-            response = requests.post(url, json=payload, headers=headers)
-            request_count += 1
+                # Добавляем курсор для пагинации (кроме первого запроса)
+                if cursor:
+                    payload["settings"]["cursor"] = {
+                        "updatedAt": cursor["updatedAt"],
+                        "nmID": cursor["nmID"]
+                    }
 
-            # Обработка ошибок
-            if response.status_code != 200:
-                print(f"Ошибка {response.status_code}: {response.text}")
-                if response.status_code == 429:
-                    reset_time = int(response.headers.get('Retry-After', 60))
-                    print(f"Лимит запросов. Пауза {reset_time} сек.")
-                    await asyncio.sleep(reset_time)
-                    continue
-                return None
+                # Отправляем запрос
+                async with session.post(url, json=payload, timeout=30) as response:
+                    request_count += 1
 
-            data = response.json()
+                    # Обработка ошибок
+                    if response.status != 200:
+                        print(f"Ошибка {response.status}: {await response.text()}")
+                        if response.status == 429:
+                            reset_time = int(response.headers.get('Retry-After', 60))
+                            print(f"Лимит запросов. Пауза {reset_time} сек.")
+                            await asyncio.sleep(reset_time)
+                            continue
+                        return None
 
-            # Обработка каждой карточки
-            for card in data.get("cards", []):
-                all_cards.append({
-                    "vendorCode": card.get("vendorCode"),
-                    "nmID": card.get("nmID")
-                })
+                    data = await response.json()
 
-            # Проверка завершения пагинации
-            cursor = data.get("cursor")
-            if not cursor or cursor.get("total", 0) <= 0:
-                break
+                    # Обработка каждой карточки
+                    for card in data.get("cards", []):
+                        all_cards.append({
+                            "vendorCode": card.get("vendorCode"),
+                            "nmID": card.get("nmID")
+                        })
 
-            # Контроль лимита запросов (100/мин)
-            elapsed_time = time.time() - start_time
-            if request_count >= 100 and elapsed_time < 60:
-                sleep_time = 60 - elapsed_time + 1
-                print(
-                    f"Приближение к лимиту запросов. Пауза {sleep_time:.1f} сек.")
-                await asyncio.sleep(sleep_time)
-                request_count = 0
-                start_time = time.time()
+                    # Проверка завершения пагинации
+                    cursor = data.get("cursor")
+                    if not cursor or cursor.get("total", 0) <= 0:
+                        break
 
-    except requests.exceptions.RequestException as e:
+                    # Контроль лимита запросов (100/мин)
+                    elapsed_time = time.time() - start_time
+                    if request_count >= 100 and elapsed_time < 60:
+                        sleep_time = 60 - elapsed_time + 1
+                        print(
+                            f"Приближение к лимиту запросов. Пауза {sleep_time:.1f} сек.")
+                        await asyncio.sleep(sleep_time)
+                        request_count = 0
+                        start_time = time.time()
+
+    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
         print(f"Ошибка соединения: {e}")
         return None
 
@@ -174,65 +174,64 @@ async def get_orders_statistics(headers, nm_ids, date_from=None, date_to=None, s
         }
 
         try:
-            response = requests.post(
-                API_URL,
-                json=payload,
-                headers=headers,
-                timeout=30
-            )
+            async with aiohttp.ClientSession(headers=headers) as session:
+                async with session.post(
+                    API_URL,
+                    json=payload,
+                    timeout=30
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        for item in data.get("data", []):
+                            nm_id = item["nmID"]
+                            orders_count = 0
+                            orders_sum = 0.0
+                            addToCartConversion = 0.0
+                            cartToOrderConversion = 0.0
+                            for day in item.get("history", []):
+                                orders_count += day.get("ordersCount", 0)
+                                orders_sum += day.get("ordersSumRub", 0)
+                                addToCartConversion += day.get("addToCartConversion", 0)
+                                cartToOrderConversion += day.get("cartToOrderConversion", 0)
+                            state['all_stats'][nm_id] = {
+                                "ordersCount": orders_count,
+                                "ordersSumRub": orders_sum,
+                                "addToCartConversion": addToCartConversion,
+                                "cartToOrderConversion": cartToOrderConversion
+                            }
+                        
+                        # Переходим к следующему чанку
+                        state['current_chunk'] += 1
+                        state['retry_count'] = 0  # Сбрасываем счетчик повторов
 
-            if response.status_code == 200:
-                data = response.json()
-                for item in data.get("data", []):
-                    nm_id = item["nmID"]
-                    orders_count = 0
-                    orders_sum = 0.0
-                    addToCartConversion = 0.0
-                    cartToOrderConversion = 0.0
-                    for day in item.get("history", []):
-                        orders_count += day.get("ordersCount", 0)
-                        orders_sum += day.get("ordersSumRub", 0)
-                        addToCartConversion += day.get("addToCartConversion", 0)
-                        cartToOrderConversion += day.get("cartToOrderConversion", 0)
-                    state['all_stats'][nm_id] = {
-                        "ordersCount": orders_count,
-                        "ordersSumRub": orders_sum,
-                        "addToCartConversion": addToCartConversion,
-                        "cartToOrderConversion": cartToOrderConversion
-                    }
-                
-                # Переходим к следующему чанку
-                state['current_chunk'] += 1
-                state['retry_count'] = 0  # Сбрасываем счетчик повторов
+                    elif response.status == 429:
+                        retry_after = 20
+                        logging.warning(f"429 error. Retry after: {retry_after}")
+                        
+                        # Увеличиваем счетчик повторов
+                        state['retry_count'] += 1
+                        if state['retry_count'] > 5:
+                            logging.error("Max retries exceeded")
+                            return {
+                                'error': 429,
+                                'retry_after': retry_after,
+                                'state': state
+                            }
+                        
+                        # Возвращаем текущее состояние для возобновления
+                        return {
+                            'error': 429,
+                            'retry_after': retry_after,
+                            'state': state
+                        }
 
-            elif response.status_code == 429:
-                retry_after = 20
-                logging.warning(f"429 error. Retry after: {retry_after}")
-                
-                # Увеличиваем счетчик повторов
-                state['retry_count'] += 1
-                if state['retry_count'] > 5:
-                    logging.error("Max retries exceeded")
-                    return {
-                        'error': 429,
-                        'retry_after': retry_after,
-                        'state': state
-                    }
-                
-                # Возвращаем текущее состояние для возобновления
-                return {
-                    'error': 429,
-                    'retry_after': retry_after,
-                    'state': state
-                }
+                    else:
+                        logging.error(f"Error {response.status}: {await response.text()}")
+                        # Переходим к следующему чанку при других ошибках
+                        state['current_chunk'] += 1
+                        state['retry_count'] = 0
 
-            else:
-                logging.error(f"Error {response.status_code}: {response.text}")
-                # Переходим к следующему чанку при других ошибках
-                state['current_chunk'] += 1
-                state['retry_count'] = 0
-
-        except requests.exceptions.RequestException as e:
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             logging.error(f"Request error: {e}")
             state['current_chunk'] += 1
             state['retry_count'] = 0

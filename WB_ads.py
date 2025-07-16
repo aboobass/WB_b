@@ -1,5 +1,5 @@
 from datetime import datetime
-import requests
+import aiohttp
 import asyncio
 import json
 from datetime import datetime
@@ -9,34 +9,54 @@ import logging
 async def safe_request(HEADERS, url, method='GET', json_data=None, params=None, max_retries=3):
     for attempt in range(max_retries):
         try:
-            if method == 'GET':
-                response = requests.get(
-                    url, headers=HEADERS, params=params, json=json_data, timeout=30)
-            elif method == 'POST':
-                response = requests.post(
-                    url, headers=HEADERS, json=json_data, params=params, timeout=30)
+            async with aiohttp.ClientSession(headers=HEADERS) as session:
+                if method == 'GET':
+                    async with session.get(url, params=params, json=json_data, timeout=30) as response:
+                        response_text = await response.text()
+                        # Обработка 429
+                        if response.status == 429:
+                            retry_after = 20
+                            logging.warning(f"429 error. Retry after: {retry_after}")
+                            return {
+                                'error': 429,
+                                'retry_after': retry_after
+                            }
+                            
+                        # Остальная обработка
+                        if response.status == 400 and "no companies with correct intervals" in response_text:
+                            return None
+                        if response.status == 204:
+                            return None
+                        if 200 <= response.status < 300:
+                            try:
+                                return await response.json()
+                            except json.JSONDecodeError:
+                                return None
 
-            # Обработка 429
-            if response.status_code == 429:
-                retry_after = 20
-                logging.warning(f"429 error. Retry after: {retry_after}")
-                return {
-                    'error': 429,
-                    'retry_after': retry_after
-                }
-                
-            # Остальная обработка как раньше...
-            if response.status_code == 400 and "no companies with correct intervals" in response.text:
-                return None
-            if response.status_code == 204:
-                return None
-            if 200 <= response.status_code < 300:
-                try:
-                    return response.json()
-                except json.JSONDecodeError:
-                    return None
+                elif method == 'POST':
+                    async with session.post(url, json=json_data, params=params, timeout=30) as response:
+                        response_text = await response.text()
+                        # Обработка 429
+                        if response.status == 429:
+                            retry_after = 20
+                            logging.warning(f"429 error. Retry after: {retry_after}")
+                            return {
+                                'error': 429,
+                                'retry_after': retry_after
+                            }
+                            
+                        # Остальная обработка
+                        if response.status == 400 and "no companies with correct intervals" in response_text:
+                            return None
+                        if response.status == 204:
+                            return None
+                        if 200 <= response.status < 300:
+                            try:
+                                return await response.json()
+                            except json.JSONDecodeError:
+                                return None
 
-        except requests.exceptions.RequestException as e:
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             logging.error(f"Request error ({attempt+1}/{max_retries}): {e}")
             await asyncio.sleep(2)
     
