@@ -16,7 +16,7 @@ HEADERS = {}
 WB_API_KEY = ""
 
 
-async def get_client_data(sheet_id):
+def get_client_data(sheet_id):
     try:
         client = gspread.authorize(CREDS)
         spreadsheet = client.open_by_key(sheet_id)
@@ -43,12 +43,12 @@ async def get_client_data(sheet_id):
         print(f"Ошибка при получении данных из таблицы {sheet_id}: {e}")
         return {}
 
-async def calculate_metrics(orders, ad_stats_df, client_sheet_id=None):
+def calculate_metrics(orders, ad_stats_df, client_sheet_id=None):
     try:
         # Получаем все данные из таблицы клиента одним запросом
         client_data = {}
         if client_sheet_id:
-            client_data = await get_client_data(client_sheet_id)
+            client_data = get_client_data(client_sheet_id)
 
         for nmId in orders.keys():
             if nmId in ad_stats_df:
@@ -406,7 +406,7 @@ async def main_from_config(config_url: str, date_from=None, date_to=None):
                 
                 if isinstance(ad_stats, dict) and ad_stats.get('error') == 429:
                     return pd.DataFrame(), "429_error"
-                metrics_df = await calculate_metrics(
+                metrics_df = calculate_metrics(
                     orders, ad_stats, sheet_id)
 
                 if not metrics_df.empty:
@@ -418,12 +418,12 @@ async def main_from_config(config_url: str, date_from=None, date_to=None):
     except Exception as e:
         print(f"Критическая ошибка: {e}")
 
-async def calculate_metrics_for_bot(orders, ad_stats_df, client_sheet_id=None):
+def calculate_metrics_for_bot(orders, ad_stats_df, client_sheet_id=None):
     try:
         # Получаем все данные из таблицы клиента одним запросом
         client_data = {}
         if client_sheet_id:
-            client_data = await get_client_data(client_sheet_id)
+            client_data = get_client_data(client_sheet_id)
 
         for nmId in orders.keys():
             if nmId in ad_stats_df:
@@ -565,7 +565,7 @@ async def generate_report(sheet_user: str, sheet_name: str, config_url: str, dat
                         return pd.DataFrame(), "429_error"
                     
                     # Формирование отчета
-                    metrics_df = await calculate_metrics_for_bot(orders, ad_stats, sheet_id)
+                    metrics_df = calculate_metrics_for_bot(orders, ad_stats, sheet_id)
                     summary = await generate_summary(metrics_df)
                     print(metrics_df)
                     try:
