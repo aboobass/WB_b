@@ -143,7 +143,7 @@ async def calculate_metrics(orders, ad_stats_df, client_sheet_id=None):
         traceback.print_exc()
         return pd.DataFrame()
 
-def read_config(config_sheet_url: str) -> dict:
+async def read_config(config_sheet_url: str) -> dict:
     """Чтение конфигурации: {user: [(sheet_id, wb_api_key, sheet_name)]}"""
     client = gspread.authorize(CREDS)
     sheet = client.open_by_url(config_sheet_url).sheet1
@@ -354,7 +354,7 @@ async def main_from_config(config_url: str, date_from=None, date_to=None):
     print(f"\nОбработка данных за период: {date_from} - {date_to}")
 
     try:
-        configs = read_config(config_url)
+        configs = await read_config(config_url)
         for user, user_configs in configs.items():
             print(f"\n--- Обработка пользователя: {user} ---")
             client = gspread.authorize(CREDS)
@@ -515,7 +515,7 @@ async def generate_report(sheet_user: str, sheet_name: str, config_url: str, dat
         date_to = datetime.now().strftime('%Y-%m-%dT%H:%M:%S')
 
     try:
-        configs = read_config(config_url)
+        configs = await read_config(config_url)
         for user, user_configs in configs.items():
             for sheet_id, wb_key, config_sheet_name in user_configs:
                 if config_sheet_name == sheet_name and user == sheet_user:
