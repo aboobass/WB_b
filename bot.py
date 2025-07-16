@@ -276,7 +276,8 @@ async def show_spreadsheet_callback(callback: types.CallbackQuery):
             message_id=callback.message.message_id)
     except:
         pass
-
+    await callback.answer()
+    await asyncio.sleep(30)
     spreadsheet_url = cache.user_spreadsheet_urls.get(username)
     if spreadsheet_url:
         message = (

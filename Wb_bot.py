@@ -48,7 +48,7 @@ async def calculate_metrics(orders, ad_stats_df, client_sheet_id=None):
         # Получаем все данные из таблицы клиента одним запросом
         client_data = {}
         if client_sheet_id:
-            client_data = get_client_data(client_sheet_id)
+            client_data = await get_client_data(client_sheet_id)
 
         for nmId in orders.keys():
             if nmId in ad_stats_df:
@@ -534,7 +534,7 @@ async def generate_report(sheet_user: str, sheet_name: str, config_url: str, dat
                         # Если получили состояние для повтора
                         if isinstance(orders, dict) and orders.get('error') == 429:
                             wait_time = 30
-                            logging.info(f"Waiting {wait_time}s for orders API (attempt {attempt+1}/{max_retries})")
+                            logging.info(f"[{sheet_name}] Waiting {wait_time}s for orders API (attempt {attempt+1}/{max_retries})")
                             await asyncio.sleep(wait_time)
                             orders_state = orders.get('state')
                             continue
@@ -555,7 +555,7 @@ async def generate_report(sheet_user: str, sheet_name: str, config_url: str, dat
                         
                         if isinstance(ad_stats, dict) and ad_stats.get('error') == 429:
                             wait_time = 30
-                            logging.info(f"Waiting {wait_time}s for ads API (attempt {attempt+1}/{max_retries})")
+                            logging.info(f"[{sheet_name}] Waiting {wait_time}s for ads API (attempt {attempt+1}/{max_retries})")
                             await asyncio.sleep(wait_time)
                             continue
                             
