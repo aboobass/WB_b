@@ -192,7 +192,8 @@ async def show_main_menu(chat_id, message_text="Выберите действи�
     kb.add(
         InlineKeyboardButton("📊 Получить отчет", callback_data="get_report"),
         InlineKeyboardButton("🛠 Управление кабинетами", callback_data="manage_cabinets"),
-        InlineKeyboardButton("📋 Моя таблица", callback_data="show_spreadsheet")
+        InlineKeyboardButton("📋 Моя таблица", callback_data="show_spreadsheet"),
+        InlineKeyboardButton("📹 Инструкция", callback_data="show_instruction")  # Новая кнопка
     )
     kb.row(
         InlineKeyboardButton("❓ Ответы на вопросы", callback_data="faq"),
@@ -236,10 +237,8 @@ async def start_handler(message: types.Message):
     await cache.load_data()
 
     if is_admin(user_id):
-        # Создаем клавиатуру для администратора
         admin_kb = InlineKeyboardMarkup()
         admin_kb.add(InlineKeyboardButton("📢 Рассылка", callback_data="admin_broadcast"))
-        
         await message.answer(
             "👋 Привет, администратор!\nВы будете получать уведомления об ошибках.",
             reply_markup=admin_kb
@@ -250,14 +249,55 @@ async def start_handler(message: types.Message):
         await message.answer("👋 Вы уже зарегистрированы!\nВы можете добавить до 7 личных кабинетов")
         await show_main_menu(message.chat.id)
         return
-
-    instruction_photo = InputFile("instruction.jpg")
-    await bot.send_photo(message.chat.id, instruction_photo)
+    
+    # Отправляем первое видео с кнопкой "Ознакомился"
+    first_video_url = "https://rutube.ru/video/b0a93b772b8b9867a3e88d0df9e3bf5c/"
+    kb = InlineKeyboardMarkup()
+    kb.add(InlineKeyboardButton("Ознакомился", callback_data="watched_first_video"))
     await message.answer(
-        "👋 Добро пожаловать! Для регистрации введите ваш WB API ключ (аналитика и продвижение):",
+        f"📹 Ознакомьтесь с возможностями:\n{first_video_url}",
+        reply_markup=kb
+    )
+
+
+@dp.callback_query_handler(lambda c: c.data == "show_instruction")
+async def show_instruction_callback(callback: types.CallbackQuery):
+    # Отправляем видео с инструкцией
+    video_url = "https://rutube.ru/video/7d44d613016e0a0d3c3a6bbe61517319/"
+    await callback.message.answer(f"📹 Инструкции пользования:\n{video_url}")
+    await callback.answer()
+    await show_main_menu(callback.message.chat.id)
+    
+
+@dp.callback_query_handler(lambda c: c.data == "watched_first_video")
+async def watched_first_video_handler(callback: types.CallbackQuery):
+    # Отправляем второе видео с кнопкой "Начать"
+    second_video_url = "https://rutube.ru/video/7d44d613016e0a0d3c3a6bbe61517319/"
+    kb = InlineKeyboardMarkup()
+    kb.add(InlineKeyboardButton("Начать", callback_data="start_registration"))
+    try:
+        await callback.message.edit_text(
+            f"📹 Инструкции пользования:\n{second_video_url}",
+            reply_markup=kb
+        )
+    except MessageNotModified:
+        pass
+    
+    await callback.answer()
+
+
+@dp.callback_query_handler(lambda c: c.data == "start_registration")
+async def start_registration_handler(callback: types.CallbackQuery):
+    # Начинаем процесс регистрации
+    instruction_photo = InputFile("instruction.jpg")
+    await bot.send_photo(callback.message.chat.id, instruction_photo)
+    await callback.message.answer(
+        "👋 Для регистрации введите ваш WB API ключ (аналитика и продвижение):",
         reply_markup=get_cancel_keyboard()
     )
     await UserRegistrationStates.WAITING_API_KEY.set()
+    await callback.answer()
+
 
 @dp.callback_query_handler(lambda c: c.data == "show_spreadsheet")
 async def show_spreadsheet_callback(callback: types.CallbackQuery):
@@ -346,7 +386,10 @@ async def process_cabinet_api_key(message: types.Message, state: FSMContext):
         data['api_key'] = api_key
 
     await AddCabinetStates.next()
-    await msg.edit_text("✅ Ключ принят! Теперь введите название для нового кабинета:", reply_markup=get_cancel_keyboard())
+    try:
+        await msg.edit_text("✅ Ключ принят! Теперь введите название для нового кабинета:", reply_markup=get_cancel_keyboard())
+    except MessageNotModified:
+        pass
 
 @dp.message_handler(state=AddCabinetStates.WAITING_CABINET_NAME)
 async def process_new_cabinet_name(message: types.Message, state: FSMContext):
@@ -396,7 +439,10 @@ async def process_registration_api_key(message: types.Message, state: FSMContext
         data['api_key'] = api_key
 
     await UserRegistrationStates.next()
-    await msg.edit_text("✅ Ключ принят! Теперь введите название для вашего личного кабинета:", reply_markup=get_cancel_keyboard())
+    try:
+        await msg.edit_text("✅ Ключ принят! Теперь введите название для вашего личного кабинета:", reply_markup=get_cancel_keyboard())
+    except MessageNotModified:
+        pass
 
 
 @dp.message_handler(state=UserRegistrationStates.WAITING_CABINET_NAME)
@@ -575,6 +621,8 @@ async def process_report_callback(callback: types.CallbackQuery):
             text="🔄 Формирую отчёт, это займёт некоторое время...",
             reply_markup=None  # Убираем клавиатуру
         )
+    except MessageNotModified:
+        pass
     except Exception as e:
         logging.error(f"Ошибка редактирования сообщения: {e}")
         # Если не удалось отредактировать, отправляем новое сообщение
@@ -1051,6 +1099,8 @@ async def delete_cabinet_callback(callback: types.CallbackQuery, state: FSMConte
             text="🔄 Ожидайте 30 сек, идёт удаление кабинета...",
             reply_markup=None  # Убираем клавиатуру
         )
+    except MessageNotModified:
+        pass
     except Exception as e:
         logging.error(f"Ошибка редактирования сообщения: {e}")
         # Если не удалось отредактировать, отправляем новое сообщение    
@@ -1172,6 +1222,8 @@ async def refresh_articles_callback(callback: types.CallbackQuery, state: FSMCon
             text="⏳ Ожидайте 30 секунд, идёт обработка...",
             reply_markup=None  # Убираем клавиатуру
         )
+    except MessageNotModified:
+        pass
     except Exception as e:
         logging.error(f"Ошибка редактирования сообщения: {e}")
         # Если не удалось отредактировать, отправляем новое сообщение    
