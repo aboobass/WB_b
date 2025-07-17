@@ -192,8 +192,10 @@ async def show_main_menu(chat_id, message_text="Выберите действи�
     kb.add(
         InlineKeyboardButton("📊 Получить отчет", callback_data="get_report"),
         InlineKeyboardButton("🛠 Управление кабинетами", callback_data="manage_cabinets"),
-        InlineKeyboardButton("📋 Моя таблица", callback_data="show_spreadsheet"),
-        InlineKeyboardButton("📹 Инструкция", callback_data="show_instruction")  # Новая кнопка
+    )
+    kb.row(
+        InlineKeyboardButton("📹 Инструкция", callback_data="show_instruction"),
+        InlineKeyboardButton("📋 Моя таблица", callback_data="show_spreadsheet")
     )
     kb.row(
         InlineKeyboardButton("❓ Ответы на вопросы", callback_data="faq"),
