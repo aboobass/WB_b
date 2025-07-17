@@ -694,7 +694,7 @@ async def add_articles_to_sheet(worksheet, articles):
         try:
             worksheet.append_rows(batch)
             if len(values) > batch_size:
-                time.sleep(1)
+                await asyncio.sleep(1)
         except Exception as e:
             logging.error(f"Ошибка добавления артикулов: {e}")
 
@@ -869,7 +869,7 @@ async def add_cabinet_sheet(spreadsheet, cabinet_name: str, articles):
             batch = articles_with_cabinet[i:i + batch_size]
             worksheet.append_rows(batch)
             if len(articles_with_cabinet) > batch_size:
-                time.sleep(1) 
+                await asyncio.sleep(1)
         return True
     except Exception as e:
         logging.error(f"Ошибка инициализации таблицы: {e}")
