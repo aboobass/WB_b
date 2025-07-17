@@ -265,15 +265,16 @@ async def start_handler(message: types.Message):
 @dp.callback_query_handler(lambda c: c.data == "show_instruction")
 async def show_instruction_callback(callback: types.CallbackQuery):
     # Отправляем видео с инструкцией
+    await callback.answer()
     video_url = "https://rutube.ru/video/7d44d613016e0a0d3c3a6bbe61517319/"
     await callback.message.answer(f"📹 Инструкции пользования:\n{video_url}")
-    await callback.answer()
     await show_main_menu(callback.message.chat.id)
     
 
 @dp.callback_query_handler(lambda c: c.data == "watched_first_video")
 async def watched_first_video_handler(callback: types.CallbackQuery):
     # Отправляем второе видео с кнопкой "Начать"
+    await callback.answer()
     second_video_url = "https://rutube.ru/video/7d44d613016e0a0d3c3a6bbe61517319/"
     kb = InlineKeyboardMarkup()
     kb.add(InlineKeyboardButton("Начать", callback_data="start_registration"))
@@ -284,13 +285,18 @@ async def watched_first_video_handler(callback: types.CallbackQuery):
         )
     except MessageNotModified:
         pass
+    except:
+        await callback.message.answer(
+            f"📹 Инструкции пользования:\n{second_video_url}",
+            reply_markup=kb
+        )
     
-    await callback.answer()
 
 
 @dp.callback_query_handler(lambda c: c.data == "start_registration")
 async def start_registration_handler(callback: types.CallbackQuery):
     # Начинаем процесс регистрации
+    await callback.answer()
     instruction_photo = InputFile("instruction.jpg")
     await bot.send_photo(callback.message.chat.id, instruction_photo)
     await callback.message.answer(
@@ -298,7 +304,6 @@ async def start_registration_handler(callback: types.CallbackQuery):
         reply_markup=get_cancel_keyboard()
     )
     await UserRegistrationStates.WAITING_API_KEY.set()
-    await callback.answer()
 
 
 @dp.callback_query_handler(lambda c: c.data == "show_spreadsheet")
