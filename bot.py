@@ -120,7 +120,7 @@ class UserDataCache:
         self.user_lk_cache = {}
         self.config_cache = None
         self.last_config_update = None
-        self.cache_expiration = timedelta(days=1)
+        self.cache_expiration = timedelta(days=30)
         self.user_mapping = {}
         self.user_spreadsheet_urls = {}
 
