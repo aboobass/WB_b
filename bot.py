@@ -145,26 +145,50 @@ class UserDataCache:
 
     async def update_config_cache(self):
         try:
-            
             users = get_available_users_from_config(CONFIG_URL)
             config = {}
             for user in users:
                 cabinets = get_user_cabinets(CONFIG_URL, user)
                 config[user] = cabinets
             self.config_cache = config
+            logging.info(f"Обновлен кэш для всех")
             return config
         except Exception as e:
             logging.error(f"Ошибка обновления кэша конфигурации: {e}")
             return None
+
+    async def update_user_in_cache(self, username: str):
+        """Обновляет кэш для конкретного пользователя"""
+        try:
+            cabinets = get_user_cabinets(CONFIG_URL, username)
+            if self.config_cache is None:
+                self.config_cache = {}
+            self.config_cache[username] = cabinets
+            logging.info(f"Обновлен кэш для пользователя: {username}")
+        except Exception as e:
+            logging.error(f"Ошибка обновления кэша для пользователя {username}: {e}")
 
     async def get_config_cache(self):
         if self.config_cache is None:
             await self.update_config_cache()
         return self.config_cache
 
+    # async def get_user_cabinets(self, username: str):
+    #     config = await self.get_config_cache()
+    #     return config.get(username, []) if config else []
+
     async def get_user_cabinets(self, username: str):
-        config = await self.get_config_cache()
-        return config.get(username, []) if config else []
+        # Если кэш пустой - обновляем полностью
+        if self.config_cache is None:
+            await self.update_config_cache()
+        
+        # Если пользователь есть в кэше - возвращаем его данные
+        if username in self.config_cache:
+            return self.config_cache[username]
+        
+        # Если пользователя нет - обновляем только его данные
+        await self.update_user_in_cache(username)
+        return self.config_cache.get(username, [])
 
     async def get_available_users(self):
         config = await self.get_config_cache()
@@ -825,7 +849,8 @@ async def add_user_to_config(username: str, api_key: str, cabinet_name: str, spr
     try:
         worksheet = gc.open_by_key(CONFIG_SHEET_ID).sheet1
         worksheet.append_row([username, api_key, cabinet_name, spreadsheet_url])
-        cache.config_cache = None  # Сбрасываем кеш конфигурации
+        # cache.config_cache = None  # Сбрасываем кеш конфигурации
+        await cache.update_user_in_cache(username)
     except Exception as e:
         logging.error(f"Ошибка добавления пользователя в конфиг: {e}")
 
@@ -902,8 +927,9 @@ async def add_cabinet_to_user(username: str, api_key: str, cabinet_name: str, ar
         # Добавляем в конфигурацию
         worksheet = gc.open_by_key(CONFIG_SHEET_ID).sheet1
         worksheet.append_row([username, api_key, cabinet_name, spreadsheet_url])
-        cache.config_cache = None
-        
+        # cache.config_cache = None
+        await cache.update_user_in_cache(username)
+
         # Добавляем данные в таблицу пользователя
         spreadsheet = gc.open_by_url(spreadsheet_url)
         return await add_cabinet_sheet(spreadsheet, cabinet_name, articles)
@@ -1077,7 +1103,8 @@ async def process_new_cabinet_name2(message: types.Message, state: FSMContext):
     success = await update_cabinet_name(username, old_name, new_name)
     if success:
         await message.answer(f"✅ Кабинет успешно переименован: {old_name} → {new_name}")
-        cache.config_cache = None
+        # cache.config_cache = None
+        await cache.update_user_in_cache(username)
     else:
         await message.answer("❌ Ошибка при переименовании кабинета")
     await state.finish()
@@ -1141,7 +1168,8 @@ async def delete_cabinet_callback(callback: types.CallbackQuery, state: FSMConte
     success = await delete_cabinet(username, cabinet_name)
     if success:
         await callback.message.answer(f"✅ Кабинет '{cabinet_name}' успешно удалён")
-        cache.config_cache = None
+        # cache.config_cache = None
+        await cache.update_user_in_cache(username)
     else:
         await callback.message.answer(f"❌ Ошибка при удалении кабинета '{cabinet_name}'")
     await state.finish()
