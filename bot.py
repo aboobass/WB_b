@@ -284,7 +284,10 @@ async def watched_first_video_handler(callback: types.CallbackQuery):
             reply_markup=kb
         )
     except MessageNotModified:
-        pass
+        try:
+            await callback.answer()
+        except Exception:
+            pass
     except:
         await callback.message.answer(
             f"📹 Инструкции пользования:\n{second_video_url}",
@@ -519,7 +522,10 @@ async def get_report_callback(callback: types.CallbackQuery):
             try:
                 await callback.message.edit_text("⚠️ Вы не привязаны ни к одному пользователю.")
             except MessageNotModified:
-                await callback.answer()
+                try:
+                    await callback.answer()
+                except Exception:
+                    pass
             await show_main_menu(callback.message.chat.id)
             return
 
@@ -530,7 +536,10 @@ async def get_report_callback(callback: types.CallbackQuery):
             try:
                 await callback.message.edit_text(f"⚠️ У пользователя {username} нет доступных личных кабинетов.")
             except MessageNotModified:
-                await callback.answer()
+                try:
+                    await callback.answer()
+                except Exception:
+                    pass
             await show_main_menu(callback.message.chat.id)
             return
 
@@ -549,8 +558,11 @@ async def get_report_callback(callback: types.CallbackQuery):
         try:
             await callback.message.edit_text(f"Выберите личный кабинет:", reply_markup=keyboard)
         except MessageNotModified:
-            await callback.answer()
-            
+            try:
+                await callback.answer()
+            except Exception:
+                pass
+
             
 @dp.callback_query_handler(lambda c: c.data == "back_to_main")
 async def back_to_main_callback(callback: types.CallbackQuery):
@@ -629,7 +641,10 @@ async def process_report_callback(callback: types.CallbackQuery):
             reply_markup=None  # Убираем клавиатуру
         )
     except MessageNotModified:
-        pass
+        try:
+            await callback.answer()
+        except Exception:
+            pass
     except Exception as e:
         logging.error(f"Ошибка редактирования сообщения: {e}")
         # Если не удалось отредактировать, отправляем новое сообщение
@@ -947,14 +962,20 @@ async def manage_cabinets_callback(callback: types.CallbackQuery):
             await ManageCabinetStates.SELECT_CABINET.set()
             return
         except MessageNotModified:
-            await callback.answer()
+            try:
+                await callback.answer()
+            except Exception:
+                pass
 
     kb.add(InlineKeyboardButton("❌ Отмена", callback_data="cancel_manage"))
     try:
         await callback.message.edit_text("Выберите кабинет для управления:", reply_markup=kb)
         await ManageCabinetStates.SELECT_CABINET.set()
     except MessageNotModified:
-        await callback.answer()
+        try:
+            await callback.answer()
+        except Exception:
+            pass
 
 @dp.callback_query_handler(lambda c: c.data.startswith("select_cabinet:"), state=ManageCabinetStates.SELECT_CABINET)
 async def select_cabinet_callback(callback: types.CallbackQuery, state: FSMContext):
@@ -980,7 +1001,10 @@ async def select_cabinet_callback(callback: types.CallbackQuery, state: FSMConte
         )
         await ManageCabinetStates.ACTION_CHOICE.set()
     except MessageNotModified:
-        await callback.answer()
+        try:
+            await callback.answer()
+        except Exception:
+            pass
 
 @dp.callback_query_handler(lambda c: c.data == "add_cabinet_in_manage", state=ManageCabinetStates.SELECT_CABINET)
 async def add_cabinet_in_manage_callback(callback: types.CallbackQuery, state: FSMContext):
@@ -1109,7 +1133,10 @@ async def delete_cabinet_callback(callback: types.CallbackQuery, state: FSMConte
             reply_markup=None  # Убираем клавиатуру
         )
     except MessageNotModified:
-        pass
+        try:
+            await callback.answer()
+        except Exception:
+            pass
     except Exception as e:
         logging.error(f"Ошибка редактирования сообщения: {e}")
         # Если не удалось отредактировать, отправляем новое сообщение    
@@ -1232,7 +1259,10 @@ async def refresh_articles_callback(callback: types.CallbackQuery, state: FSMCon
             reply_markup=None  # Убираем клавиатуру
         )
     except MessageNotModified:
-        pass
+        try:
+            await callback.answer()
+        except Exception:
+            pass
     except Exception as e:
         logging.error(f"Ошибка редактирования сообщения: {e}")
         # Если не удалось отредактировать, отправляем новое сообщение    
