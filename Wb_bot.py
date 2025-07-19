@@ -16,7 +16,7 @@ HEADERS = {}
 WB_API_KEY = ""
 
 
-async def get_client_data(sheet_id):
+async def get_client_data(sheet_id, cabinet_name):
     try:
         client = gspread.authorize(CREDS)
         spreadsheet = client.open_by_key(sheet_id)
@@ -31,24 +31,25 @@ async def get_client_data(sheet_id):
         data_dict = {}
 
         for row in records:
-            nmId = int(str(row.get('Артикул WB')).strip())
-            if nmId:  # Пропускаем пустые значения
-                data_dict[nmId] = {
-                    'vendorCode': row.get('Артикул продавца', ''),
-                    'profit': row.get('Прибыль с ед. товара', ''),
-                    'redemption': row.get('Выкупаемость (%)', '')
-                }
+            if str(row.get('Личный кабинет')).strip() == cabinet_name:
+                nmId = int(str(row.get('Артикул WB')).strip())
+                if nmId:  # Пропускаем пустые значения
+                    data_dict[nmId] = {
+                        'vendorCode': row.get('Артикул продавца', ''),
+                        'profit': row.get('Прибыль с ед. товара', ''),
+                        'redemption': row.get('Выкупаемость (%)', '')
+                    }
         return data_dict
     except Exception as e:
         print(f"Ошибка при получении данных из таблицы {sheet_id}: {e}")
         return {}
 
-async def calculate_metrics(orders, ad_stats_df, client_sheet_id=None):
+async def calculate_metrics(orders, ad_stats_df, client_sheet_id, cabinet_name):
     try:
         # Получаем все данные из таблицы клиента одним запросом
         client_data = {}
         if client_sheet_id:
-            client_data = await get_client_data(client_sheet_id)
+            client_data = await get_client_data(client_sheet_id, cabinet_name)
 
         for nmId in orders.keys():
             if nmId in ad_stats_df:
@@ -407,7 +408,7 @@ async def main_from_config(config_url: str, date_from=None, date_to=None):
                 if isinstance(ad_stats, dict) and ad_stats.get('error') == 429:
                     return pd.DataFrame(), "429_error"
                 metrics_df = await calculate_metrics(
-                    orders, ad_stats, sheet_id)
+                    orders, ad_stats, sheet_id, sheet_name)
 
                 if not metrics_df.empty:
                     update_google_sheet_multi(
@@ -418,12 +419,12 @@ async def main_from_config(config_url: str, date_from=None, date_to=None):
     except Exception as e:
         print(f"Критическая ошибка: {e}")
 
-async def calculate_metrics_for_bot(orders, ad_stats_df, client_sheet_id=None):
+async def calculate_metrics_for_bot(orders, ad_stats_df, client_sheet_id, cabinet_name):
     try:
         # Получаем все данные из таблицы клиента одним запросом
         client_data = {}
         if client_sheet_id:
-            client_data = await get_client_data(client_sheet_id)
+            client_data = await get_client_data(client_sheet_id, cabinet_name)
 
         for nmId in orders.keys():
             if nmId in ad_stats_df:
@@ -451,8 +452,12 @@ async def calculate_metrics_for_bot(orders, ad_stats_df, client_sheet_id=None):
                 orders[nmId]['gross_profit']= None
         result = []
         for nmId, values in orders.items():
+            if nmId in client_data:
+                vendorCode = client_data[nmId]['vendorCode']
+            else:
+                vendorCode = ''
             if values['ordersCount'] != 0:
-                result.append([nmId, client_data[nmId]['vendorCode'], values['ordersCount'], values['costs'], values['gross_profit'], values['ordersSumRub']])
+                result.append([nmId, vendorCode, values['ordersCount'], values['costs'], values['gross_profit'], values['ordersSumRub']])
         result = pd.DataFrame(result, columns=['nmId', 'vendorCode', 'ordersCount', 'costs', 'gross_profit', 'ordersSumRub'])
 
 
@@ -564,7 +569,7 @@ async def generate_report(sheet_user: str, sheet_name: str, config_url: str, dat
                         return pd.DataFrame(), "429_error"
                     
                     # Формирование отчета
-                    metrics_df = await calculate_metrics_for_bot(orders, ad_stats, sheet_id)
+                    metrics_df = await calculate_metrics_for_bot(orders, ad_stats, sheet_id, sheet_name)
                     summary = await generate_summary(metrics_df)
                     print('Метрики посчитаны')
                     try:
