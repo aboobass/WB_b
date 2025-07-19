@@ -94,7 +94,7 @@ async def calculate_metrics(orders, ad_stats_df, client_sheet_id, cabinet_name):
                 if nmId in client_data:
                     vendorCode = client_data[nmId]['vendorCode']
                 else:
-                    vendorCode = ''
+                    vendorCode = 'Нет в таблице'
                 result.append([nmId, vendorCode, values['ordersCount'], values['costs'], values['gross_profit'], values['ordersSumRub'], ' ', values['views'], values['auto_ctr'], values['auction_ctr'], values.get('addToCartConversion', 0), values.get('cartToOrderConversion', 0)])
         result = pd.DataFrame(result, columns=['nmId', 'vendorCode', 'ordersCount', 'costs', 'gross_profit', 'ordersSumRub', 'void', 'views', 'auto_ctr', 'auction_ctr', 'addToCartConversion', 'cartToOrderConversion'])
         for index, row in result.iterrows():
@@ -455,10 +455,10 @@ async def calculate_metrics_for_bot(orders, ad_stats_df, client_sheet_id, cabine
             if nmId in client_data:
                 vendorCode = client_data[nmId]['vendorCode']
             else:
-                vendorCode = ''
+                vendorCode = 'Нет в таблице'
             if values['ordersCount'] != 0:
-                result.append([nmId, vendorCode, values['ordersCount'], values['costs'], values['gross_profit'], values['ordersSumRub']])
-        result = pd.DataFrame(result, columns=['nmId', 'vendorCode', 'ordersCount', 'costs', 'gross_profit', 'ordersSumRub'])
+                result.append([nmId, vendorCode, values['ordersCount'], values['costs'], values['gross_profit']])
+        result = pd.DataFrame(result, columns=['nmId', 'vendorCode', 'ordersCount', 'costs', 'gross_profit'])
 
 
         for index, row in result.iterrows():
