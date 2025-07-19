@@ -119,8 +119,6 @@ class UserDataCache:
     def __init__(self):
         self.user_lk_cache = {}
         self.config_cache = None
-        self.last_config_update = None
-        self.cache_expiration = timedelta(days=30)
         self.user_mapping = {}
         self.user_spreadsheet_urls = {}
 
@@ -154,15 +152,13 @@ class UserDataCache:
                 cabinets = get_user_cabinets(CONFIG_URL, user)
                 config[user] = cabinets
             self.config_cache = config
-            self.last_config_update = datetime.now()
             return config
         except Exception as e:
             logging.error(f"Ошибка обновления кэша конфигурации: {e}")
             return None
 
     async def get_config_cache(self):
-        if self.config_cache is None or (self.last_config_update and
-                                         (datetime.now() - self.last_config_update) > self.cache_expiration):
+        if self.config_cache is None:
             await self.update_config_cache()
         return self.config_cache
 
