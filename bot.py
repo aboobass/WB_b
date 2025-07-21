@@ -251,7 +251,10 @@ async def subscribe_callback(callback: types.CallbackQuery):
         parse_mode="Markdown",
         reply_markup=kb
     )
-    await callback.answer()
+    try:
+        await callback.answer()
+    except:
+        pass
 
 @dp.message_handler(commands=["start"])
 async def start_handler(message: types.Message):
@@ -285,7 +288,10 @@ async def start_handler(message: types.Message):
 @dp.callback_query_handler(lambda c: c.data == "show_instruction")
 async def show_instruction_callback(callback: types.CallbackQuery):
     # Отправляем видео с инструкцией
-    await callback.answer()
+    try:
+        await callback.answer()
+    except:
+        pass
     video_url = "https://rutube.ru/video/7d44d613016e0a0d3c3a6bbe61517319/"
     await callback.message.answer(f"📹 Инструкции пользования:\n{video_url}")
     await show_main_menu(callback.message.chat.id)
@@ -294,7 +300,10 @@ async def show_instruction_callback(callback: types.CallbackQuery):
 @dp.callback_query_handler(lambda c: c.data == "watched_first_video")
 async def watched_first_video_handler(callback: types.CallbackQuery):
     # Отправляем второе видео с кнопкой "Начать"
-    await callback.answer()
+    try:
+        await callback.answer()
+    except:
+        pass
     second_video_url = "https://rutube.ru/video/7d44d613016e0a0d3c3a6bbe61517319/"
     kb = InlineKeyboardMarkup()
     kb.add(InlineKeyboardButton("Начать", callback_data="start_registration"))
@@ -316,7 +325,10 @@ async def watched_first_video_handler(callback: types.CallbackQuery):
 @dp.callback_query_handler(lambda c: c.data == "start_registration")
 async def start_registration_handler(callback: types.CallbackQuery):
     # Начинаем процесс регистрации
-    await callback.answer()
+    try:
+        await callback.answer()
+    except:
+        pass
     instruction_photo = InputFile("instruction.jpg")
     await bot.send_photo(callback.message.chat.id, instruction_photo)
     await callback.message.answer(
@@ -343,7 +355,10 @@ async def show_spreadsheet_callback(callback: types.CallbackQuery):
             message_id=callback.message.message_id)
     except:
         pass
-    await callback.answer()
+    try:
+        await callback.answer()
+    except:
+        pass
     spreadsheet_url = cache.user_spreadsheet_urls.get(username)
     if spreadsheet_url:
         message = (
@@ -361,13 +376,19 @@ async def show_spreadsheet_callback(callback: types.CallbackQuery):
 
 @dp.callback_query_handler(lambda c: c.data == "cancel_action", state="*")
 async def cancel_action_handler(callback: types.CallbackQuery, state: FSMContext):
-    await callback.answer()
+    try:
+        await callback.answer()
+    except:
+        pass
     await state.finish()
     await show_main_menu(callback.message.chat.id)
 
 @dp.callback_query_handler(lambda c: c.data == "cancel_action_admin", state="*")
 async def cancel_action_admin_handler(callback: types.CallbackQuery, state: FSMContext):
-    await callback.answer()
+     try:
+        await callback.answer()
+    except:
+        pass
     await state.finish()
     await show_admin_menu(callback.message.chat.id)
     try:
@@ -535,7 +556,10 @@ async def process_registration_cabinet_name(message: types.Message, state: FSMCo
 
 @dp.callback_query_handler(lambda c: c.data == "get_report")
 async def get_report_callback(callback: types.CallbackQuery):
-    await callback.answer()
+    try:
+        await callback.answer()
+    except:
+        pass
     user_id = callback.from_user.id
     logging.info(f"{user_id} | Нажата кнопка 'Получить отчёт'")
     if not is_admin(user_id):
@@ -584,7 +608,10 @@ async def get_report_callback(callback: types.CallbackQuery):
             
 @dp.callback_query_handler(lambda c: c.data == "back_to_main")
 async def back_to_main_callback(callback: types.CallbackQuery):
-    await callback.answer()
+    try:
+        await callback.answer()
+    except:
+        pass
     if not is_admin(callback.from_user.id):
         await show_main_menu(callback.message.chat.id)
     try:
@@ -646,9 +673,10 @@ async def send_report_as_file(chat_id: int, username: str, cabinet_name: str, df
 
 @dp.callback_query_handler(lambda c: c.data.startswith("get_report:"))
 async def process_report_callback(callback: types.CallbackQuery):
-    
-    await callback.answer()
-
+    try:
+        await callback.answer()
+    except:
+        pass
     user_id = callback.from_user.id
     if is_admin(user_id):
         return
@@ -952,7 +980,10 @@ async def get_cabinet_api_key(username: str, cabinet_name: str) -> str:
 
 @dp.callback_query_handler(lambda c: c.data == "manage_cabinets")
 async def manage_cabinets_callback(callback: types.CallbackQuery):
-    await callback.answer()
+    try:
+        await callback.answer()
+    except:
+        pass
     user_id = callback.from_user.id
     logging.info(f"{user_id} | Нажата кнопка 'Управление кабинетами'")
     username = cache.user_mapping.get(user_id)
@@ -1003,7 +1034,10 @@ async def manage_cabinets_callback(callback: types.CallbackQuery):
 
 @dp.callback_query_handler(lambda c: c.data.startswith("select_cabinet:"), state=ManageCabinetStates.SELECT_CABINET)
 async def select_cabinet_callback(callback: types.CallbackQuery, state: FSMContext):
-    await callback.answer()
+    try:
+        await callback.answer()
+    except:
+        pass
     
     cabinet_name = callback.data.split(":")[1]
     user_id = callback.from_user.id
@@ -1050,7 +1084,10 @@ async def add_cabinet_in_manage_callback(callback: types.CallbackQuery, state: F
         await callback.answer("❌ Достигнут лимит в 7 кабинетов", show_alert=True)
         return
 
-    await callback.answer()
+    try:
+        await callback.answer()
+    except:
+        pass
 
     try:
         # await callback.message.delete()
@@ -1068,13 +1105,19 @@ async def add_cabinet_in_manage_callback(callback: types.CallbackQuery, state: F
 
 @dp.callback_query_handler(lambda c: c.data == "back_to_cabinets", state="*")
 async def back_to_cabinets_callback(callback: types.CallbackQuery, state: FSMContext):
-    await callback.answer()
+    try:
+        await callback.answer()
+    except:
+        pass
     await state.finish()
     await manage_cabinets_callback(callback)
 
 @dp.callback_query_handler(lambda c: c.data == "cancel_manage", state=ManageCabinetStates.all_states)
 async def cancel_manage_callback(callback: types.CallbackQuery, state: FSMContext):
-    await callback.answer()
+    try:
+        await callback.answer()
+    except:
+        pass
     await state.finish()
     await show_main_menu(callback.message.chat.id)
     try:
@@ -1084,7 +1127,10 @@ async def cancel_manage_callback(callback: types.CallbackQuery, state: FSMContex
 
 @dp.callback_query_handler(lambda c: c.data == "rename_cabinet", state=ManageCabinetStates.ACTION_CHOICE)
 async def rename_cabinet_callback(callback: types.CallbackQuery, state: FSMContext):
-    await callback.answer()
+    try:
+        await callback.answer()
+    except:
+        pass
     try:
         # await callback.message.delete()
         await bot.delete_message(
@@ -1154,7 +1200,10 @@ async def update_cabinet_name(username: str, old_name: str, new_name: str) -> bo
 
 @dp.callback_query_handler(lambda c: c.data == "delete_cabinet", state=ManageCabinetStates.ACTION_CHOICE)
 async def delete_cabinet_callback(callback: types.CallbackQuery, state: FSMContext):
-    await callback.answer()
+    try:
+        await callback.answer()
+    except:
+        pass
 
     if is_admin(callback.from_user.id):
         return
@@ -1284,7 +1333,10 @@ async def refresh_articles_callback(callback: types.CallbackQuery, state: FSMCon
         await show_main_menu(callback.message.chat.id)
         return
 
-    await callback.answer()
+    try:
+        await callback.answer()
+    except:
+        pass
     try:
         msg = await callback.message.edit_text(
             text="⏳ Ожидайте 30 секунд, идёт обработка...",
@@ -1363,7 +1415,10 @@ async def faq_callback(callback: types.CallbackQuery):
 
 @dp.callback_query_handler(lambda c: c.data == "support")
 async def support_callback(callback: types.CallbackQuery):
-    await callback.answer()
+    try:
+        await callback.answer()
+    except:
+        pass
     try:
         await callback.message.delete()
     except: 
@@ -1405,7 +1460,10 @@ async def process_support_question(message: types.Message, state: FSMContext):
 
 @dp.callback_query_handler(lambda c: c.data.startswith("reply_to:"))
 async def reply_to_user_callback(callback: types.CallbackQuery, state: FSMContext):
-    await callback.answer()
+    try:
+        await callback.answer()
+    except:
+        pass
     user_id_to_reply = int(callback.data.split(":")[1])
     async with state.proxy() as data:
         data['user_id_to_reply'] = user_id_to_reply
@@ -1446,7 +1504,10 @@ async def main_menu_button_handler(message: types.Message, state: FSMContext):
 # Обработчик кнопки "Рассылка"
 @dp.callback_query_handler(lambda c: c.data == "admin_broadcast")
 async def broadcast_callback(callback: types.CallbackQuery):
-    await callback.answer()
+    try:
+        await callback.answer()
+    except:
+        pass
     if is_admin(callback.from_user.id):
         msg = callback.message
         await callback.message.answer(
@@ -1482,7 +1543,10 @@ async def process_broadcast_message(message: types.Message, state: FSMContext):
 # Обработчик подтверждения рассылки
 @dp.callback_query_handler(lambda c: c.data == "confirm_broadcast", state=BroadcastStates.CONFIRMATION)
 async def confirm_broadcast(callback: types.CallbackQuery, state: FSMContext):
-    await callback.answer()
+    try:
+        await callback.answer()
+    except:
+        pass
     admin_id = callback.from_user.id
     async with state.proxy() as data:
         message_text = data['message']
