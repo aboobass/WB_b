@@ -385,7 +385,7 @@ async def cancel_action_handler(callback: types.CallbackQuery, state: FSMContext
 
 @dp.callback_query_handler(lambda c: c.data == "cancel_action_admin", state="*")
 async def cancel_action_admin_handler(callback: types.CallbackQuery, state: FSMContext):
-     try:
+    try:
         await callback.answer()
     except:
         pass
