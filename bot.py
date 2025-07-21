@@ -418,6 +418,9 @@ async def process_cabinet_api_key(message: types.Message, state: FSMContext):
         await msg.edit_text("✅ Ключ принят! Теперь введите название для нового кабинета:", reply_markup=get_cancel_keyboard())
     except MessageNotModified:
         pass
+    except:
+        await bot.send_message(message.chat.id, "✅ Ключ принят! Теперь введите название для нового кабинета:", reply_markup=get_cancel_keyboard())
+
 
 @dp.message_handler(state=AddCabinetStates.WAITING_CABINET_NAME)
 async def process_new_cabinet_name(message: types.Message, state: FSMContext):
@@ -537,22 +540,26 @@ async def get_report_callback(callback: types.CallbackQuery):
     logging.info(f"{user_id} | Нажата кнопка 'Получить отчёт'")
     if not is_admin(user_id):
         users = await cache.get_available_users_for_user(user_id)
+        logging.info(f"Доступные пользователи: {users}")
         if not users or not users[0]:
             try:
                 await callback.message.edit_text("⚠️ Вы не привязаны ни к одному пользователю.")
             except MessageNotModified:
                 pass
+            logging.error(f"{user_id}  users = {users}")
             await show_main_menu(callback.message.chat.id)
             return
 
         username = users[0]
         cabinets = await cache.get_user_cabinets(username)
+        logging.info(f"Кабинеты пользователя {username}: {cabinets}")
 
         if not cabinets:
             try:
                 await callback.message.edit_text(f"⚠️ У пользователя {username} нет доступных личных кабинетов.")
             except MessageNotModified:
                 pass
+            logging.error(f"{user_id}  cabinets = {cabinets}")
             await show_main_menu(callback.message.chat.id)
             return
 
@@ -572,7 +579,8 @@ async def get_report_callback(callback: types.CallbackQuery):
             await callback.message.edit_text(f"Выберите личный кабинет:", reply_markup=keyboard)
         except MessageNotModified:
             pass
-
+        except:
+            await bot.send_message(callback.from_user.id, f"Выберите личный кабинет:", reply_markup=keyboard)
             
 @dp.callback_query_handler(lambda c: c.data == "back_to_main")
 async def back_to_main_callback(callback: types.CallbackQuery):
@@ -975,9 +983,13 @@ async def manage_cabinets_callback(callback: types.CallbackQuery):
                 reply_markup=kb
             )
             await ManageCabinetStates.SELECT_CABINET.set()
-            return
         except MessageNotModified:
             pass
+        except:
+            await bot.send_message(callback.from_user.id, "У вас пока нет кабинетов. Хотите добавить первый?", reply_markup=kb)    
+            await ManageCabinetStates.SELECT_CABINET.set()
+        return 
+
 
     kb.add(InlineKeyboardButton("❌ Отмена", callback_data="cancel_manage"))
     try:
@@ -985,6 +997,9 @@ async def manage_cabinets_callback(callback: types.CallbackQuery):
         await ManageCabinetStates.SELECT_CABINET.set()
     except MessageNotModified:
         pass
+    except:
+        await bot.send_message(callback.from_user.id, "Выберите кабинет для управления:", reply_markup=kb)
+        await ManageCabinetStates.SELECT_CABINET.set()
 
 @dp.callback_query_handler(lambda c: c.data.startswith("select_cabinet:"), state=ManageCabinetStates.SELECT_CABINET)
 async def select_cabinet_callback(callback: types.CallbackQuery, state: FSMContext):
@@ -1015,7 +1030,10 @@ async def select_cabinet_callback(callback: types.CallbackQuery, state: FSMConte
         await ManageCabinetStates.ACTION_CHOICE.set()
     except MessageNotModified:
         pass
-
+    except:
+        await bot.send_message(callback.from_user.id, f"Выбран кабинет: {cabinet_name}\nВыберите действие:", reply_markup=kb)
+        await ManageCabinetStates.ACTION_CHOICE.set()
+        
 @dp.callback_query_handler(lambda c: c.data == "add_cabinet_in_manage", state=ManageCabinetStates.SELECT_CABINET)
 async def add_cabinet_in_manage_callback(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
