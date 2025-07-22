@@ -590,8 +590,9 @@ async def get_report_callback(callback: types.CallbackQuery):
         keyboard = InlineKeyboardMarkup(row_width=1)
 
         for cabinet in cabinets:
-            keyboard.add(InlineKeyboardButton(
+            keyboard.add(InlineKeyboardButton( 
                 text=cabinet, callback_data=f"get_report:{username}:{cabinet}"))
+            logging.info(f"{user_id} Кабинет {cabinet} добавлен к клавинатуре")
         
         keyboard.add(InlineKeyboardButton(
             text="Все", callback_data=f"get_report:{username}:all"))
@@ -599,13 +600,20 @@ async def get_report_callback(callback: types.CallbackQuery):
         keyboard.add(InlineKeyboardButton(
             "🔙 Назад", callback_data="back_to_main"))
         
+        logging.info(f"{user_id} Все кабинеты добавлены к клавинатуре")
         try:
+            logging.info(f"{user_id} До изменения сообщения")
             await callback.message.edit_text(f"Выберите личный кабинет:", reply_markup=keyboard)
+            logging.info(f"{user_id} После изменения сообщения")
         except MessageNotModified:
+            logging.error(f"{user_id} MessageNotModified ")
             pass
         except:
+            logging.info(f"{user_id} Не удалось изменить, отправка сообщения")
             await bot.send_message(callback.from_user.id, f"Выберите личный кабинет:", reply_markup=keyboard)
-            
+            logging.info(f"{user_id} Сообщение отправлено")
+        logging.info(f"{user_id} SUCCESS")
+        
 @dp.callback_query_handler(lambda c: c.data == "back_to_main")
 async def back_to_main_callback(callback: types.CallbackQuery):
     try:
