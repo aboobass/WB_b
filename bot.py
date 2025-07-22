@@ -722,7 +722,7 @@ async def process_report_callback(callback: types.CallbackQuery):
                     await bot.send_message(user_id, "⚠️ Превышен лимит запросов. Попробуйте позже")
                     return
                 if df is not None and not df.empty:
-                    print(summary)
+                    logging.info(f"Метрики: {summary}")
                     summ_parts = summary.split(':')
                     summ["costs"] += float(summ_parts[1])
                     if pd.notna(summ_parts[2]):

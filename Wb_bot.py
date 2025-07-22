@@ -571,7 +571,7 @@ async def generate_report(sheet_user: str, sheet_name: str, config_url: str, dat
                     # Формирование отчета
                     metrics_df = await calculate_metrics_for_bot(orders, ad_stats, sheet_id, sheet_name)
                     summary = await generate_summary(metrics_df)
-                    print('Метрики посчитаны')
+                    logging.info('Метрики посчитаны')
                     try:
                         result = metrics_df[[
                             'Артикул продавца',
