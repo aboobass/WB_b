@@ -131,7 +131,7 @@ async def get_wb_product_cards(headers):
 
                     # Проверка завершения пагинации
                     cursor = data.get("cursor")
-                    if not cursor or cursor.get("total", 0) <= 100:
+                    if not cursor or cursor.get("total", 0) < 100:
                         break
 
                     # Контроль лимита запросов (100/мин)
