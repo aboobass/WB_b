@@ -89,7 +89,7 @@ async def get_wb_product_cards(headers):
     i = 0
     try:
         async with aiohttp.ClientSession(headers=headers) as session:
-            while i < 50000:
+            while i < 1000:
                 i+=1
                 # Формируем тело запроса с пагинацией
                 payload = {
