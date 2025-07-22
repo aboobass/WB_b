@@ -226,6 +226,7 @@ async def show_main_menu(chat_id, message_text="Выберите действи�
 async def show_admin_menu(chat_id, message_text="Выберите действие:"):
     admin_kb = InlineKeyboardMarkup()
     admin_kb.add(InlineKeyboardButton("📢 Рассылка", callback_data="admin_broadcast"))
+    admin_kb.add(InlineKeyboardButton("📋 Узнать количество пользователей", callback_data="admin_users"))
     await bot.send_message(chat_id, message_text, reply_markup=admin_kb)
 
 
@@ -264,8 +265,9 @@ async def start_handler(message: types.Message):
     if is_admin(user_id):
         admin_kb = InlineKeyboardMarkup()
         admin_kb.add(InlineKeyboardButton("📢 Рассылка", callback_data="admin_broadcast"))
+        admin_kb.add(InlineKeyboardButton("📋 Узнать количество пользователей", callback_data="admin_users"))
         await message.answer(
-            "👋 Привет, администратор!\nВы будете получать уведомления об ошибках.",
+            "👋 Привет, администратор!\nВы будете получать сообщения от пользователей.",
             reply_markup=admin_kb
         )
         return
@@ -1508,6 +1510,18 @@ async def main_menu_button_handler(message: types.Message, state: FSMContext):
     if current_state:
         await state.finish()
     await show_main_menu(message.chat.id)
+
+
+@dp.callback_query_handler(lambda c: c.data == "admin_users")
+async def  list_users_callback(callback: types.CallbackQuery):
+    if is_admin(callback.from_user.id):
+        try:
+            await callback.message.delete()
+        except:
+            pass
+        await bot.send_message(callback.message.chat.id, f"Количество пользователей: {len(cache.user_mapping)}")
+        await show_admin_menu(callback.message.chat.id)
+
 
 # Обработчик кнопки "Рассылка"
 @dp.callback_query_handler(lambda c: c.data == "admin_broadcast")
