@@ -312,10 +312,7 @@ async def show_instruction_callback(callback: types.CallbackQuery):
         pass
     video_url = "https://rutube.ru/video/7d44d613016e0a0d3c3a6bbe61517319/"
     await msg.answer(f"📹 Инструкции пользования:\n{video_url}")
-    if is_admin(callback.from_user.id):
-        await show_all_menu(msg.chat.id)
-    else:
-        await show_main_menu(msg.chat.id)
+    await show_main_menu(msg.chat.id)
     
 
 @dp.callback_query_handler(lambda c: c.data == "watched_first_video")
@@ -390,10 +387,7 @@ async def show_spreadsheet_callback(callback: types.CallbackQuery):
         await bot.send_message(user_id, message)
     else:
         await callback.answer("❌ Ссылка на таблицу не найдена", show_alert=True)
-    if is_admin(user_id):
-        await show_all_menu(msg.chat.id)
-    else:
-        await show_main_menu(msg.chat.id)
+    await show_main_menu(msg.chat.id)
 
 @dp.callback_query_handler(lambda c: c.data == "cancel_action", state="*")
 async def cancel_action_handler(callback: types.CallbackQuery, state: FSMContext):
@@ -403,10 +397,7 @@ async def cancel_action_handler(callback: types.CallbackQuery, state: FSMContext
     except:
         pass
     await state.finish()
-    if is_admin(callback.from_user.id):
-        await show_all_menu(msg.chat.id)
-    else:
-        await show_main_menu(msg.chat.id)
+    await show_main_menu(msg.chat.id)
 
 @dp.callback_query_handler(lambda c: c.data == "cancel_action_admin", state="*")
 async def cancel_action_admin_handler(callback: types.CallbackQuery, state: FSMContext):
@@ -415,7 +406,7 @@ async def cancel_action_admin_handler(callback: types.CallbackQuery, state: FSMC
     except:
         pass
     await state.finish()
-    await show_all_menu(callback.message.chat.id)
+    await show_admin_menu(callback.message.chat.id)
     try:
         await callback.message.delete()
     except:
@@ -487,10 +478,7 @@ async def process_new_cabinet_name(message: types.Message, state: FSMContext):
             response = "❌ Не удалось добавить кабинет. Обратитесь к администратору."
         
         await message.answer(response)
-        if is_admin(message.from_user.id):
-            await show_all_menu(message.chat.id)
-        else:
-            await show_main_menu(message.chat.id)
+        await show_main_menu(message.chat.id)
     except Exception as e:
         logging.error(f"Ошибка при добавлении кабинета: {e}")
         await message.answer("❌ Произошла ошибка при добавлении кабинета")
@@ -577,10 +565,7 @@ async def process_registration_cabinet_name(message: types.Message, state: FSMCo
         await message.answer("❌ Ошибка при инициализации таблицы")
 
     await state.finish()
-    if is_admin(message.from_user.id):
-        await show_all_menu(message.chat.id)
-    else:
-        await show_main_menu(message.chat.id)
+    await show_main_menu(message.chat.id)
 
 
 @dp.callback_query_handler(lambda c: c.data == "get_report")
@@ -600,10 +585,7 @@ async def get_report_callback(callback: types.CallbackQuery):
         except MessageNotModified:
             pass
         logging.error(f"{user_id}  users = {users}")
-        if is_admin(user_id):
-            await show_all_menu(msg.chat.id)
-        else:
-            await show_main_menu(msg.chat.id)
+        await show_main_menu(msg.chat.id)
         return
 
     username = users[0]
@@ -616,10 +598,7 @@ async def get_report_callback(callback: types.CallbackQuery):
         except MessageNotModified:
             pass
         logging.error(f"{user_id}  cabinets = {cabinets}")
-        if is_admin(user_id):
-            await show_all_menu(msg.chat.id)
-        else:
-            await show_main_menu(msg.chat.id)
+        await show_main_menu(msg.chat.id)
         return
 
     keyboard = InlineKeyboardMarkup(row_width=1)
@@ -655,10 +634,7 @@ async def back_to_main_callback(callback: types.CallbackQuery):
         await callback.answer()
     except:
         pass
-    if not is_admin(callback.from_user.id):
-        await show_main_menu(callback.message.chat.id)
-    else:
-        await show_all_menu(callback.message.chat.id)
+    await show_main_menu(callback.message.chat.id)
     try:
         await callback.message.delete()
     except:
@@ -785,10 +761,7 @@ async def process_report_callback(callback: types.CallbackQuery):
             await bot.delete_message(user_id, wait_message.message_id)
         except:
             pass
-    if is_admin(user_id):
-        await show_all_menu(callback.message.chat.id)
-    else:
-        await show_main_menu(callback.message.chat.id)
+    await show_main_menu(callback.message.chat.id)
 
 async def add_articles_to_sheet(worksheet, articles):
     """Добавляет артикулы и баркоды в лист таблицы с сортировкой"""
@@ -1165,10 +1138,7 @@ async def cancel_manage_callback(callback: types.CallbackQuery, state: FSMContex
     except:
         pass
     await state.finish()
-    if is_admin(callback.from_user.id):
-        await show_all_menu(msg.chat.id)
-    else:
-        await show_main_menu(msg.chat.id)
+    await show_main_menu(msg.chat.id)
     try:
         await msg.delete()
     except:
@@ -1212,10 +1182,7 @@ async def process_new_cabinet_name2(message: types.Message, state: FSMContext):
     else:
         await message.answer("❌ Ошибка при переименовании кабинета")
     await state.finish()
-    if is_admin(user_id):
-        await show_all_menu(message.chat.id)
-    else:
-        await show_main_menu(message.chat.id)
+    await show_main_menu(message.chat.id)
     try:
         await bot.delete_message(message.chat.id, wait_message.message_id)
     except:
@@ -1280,10 +1247,7 @@ async def delete_cabinet_callback(callback: types.CallbackQuery, state: FSMConte
     else:
         await msg.answer(f"❌ Ошибка при удалении кабинета '{cabinet_name}'")
     await state.finish()
-    if is_admin(callback.from_user.id):
-        await show_all_menu(msg.chat.id)
-    else:
-        await show_main_menu(msg.chat.id)
+    await show_main_menu(msg.chat.id)
     
 
     await state.finish()
@@ -1375,10 +1339,7 @@ async def refresh_articles_callback(callback: types.CallbackQuery, state: FSMCon
     if not api_key:
         await callback.answer("❌ Не удалось получить API ключ для кабинета")
         await state.finish()
-        if is_admin(callback.from_user.id):
-            await show_all_menu(msg.chat.id)
-        else:
-            await show_main_menu(msg.chat.id)
+        await show_main_menu(msg.chat.id)
         await show_main_menu(callback.message.chat.id)
         return
 
@@ -1386,10 +1347,7 @@ async def refresh_articles_callback(callback: types.CallbackQuery, state: FSMCon
     if not spreadsheet_url:
         await callback.answer("❌ Не удалось найти таблицу пользователя")
         await state.finish()
-        if is_admin(callback.from_user.id):
-            await show_all_menu(msg.chat.id)
-        else:
-            await show_main_menu(msg.chat.id)
+        await show_main_menu(msg.chat.id)
         return
 
     try:
@@ -1430,10 +1388,7 @@ async def refresh_articles_callback(callback: types.CallbackQuery, state: FSMCon
         await bot.send_message(callback.from_user.id, "❌ Ошибка при обновлении артикулов")
     await state.finish()
 
-    if is_admin(callback.from_user.id):
-        await show_all_menu(callback.message.chat.id)
-    else:
-        await show_main_menu(callback.message.chat.id)
+    await show_main_menu(callback.message.chat.id)
 
 
 async def get_actual_articles(worksheet):
@@ -1521,10 +1476,7 @@ async def process_support_question(message: types.Message, state: FSMContext):
     await message.answer("✅ Ваш вопрос отправлен в поддержку. Ожидайте ответа.")
     await state.finish()
 
-    if is_admin(user_id):
-        await show_all_menu(message.chat.id)
-    else:
-        await show_main_menu(message.chat.id)
+    await show_main_menu(message.chat.id)
 
 @dp.callback_query_handler(lambda c: c.data.startswith("reply_to:"))
 async def reply_to_user_callback(callback: types.CallbackQuery, state: FSMContext):
@@ -1565,10 +1517,7 @@ async def main_menu_button_handler(message: types.Message, state: FSMContext):
     current_state = await state.get_state()
     if current_state:
         await state.finish()
-    if is_admin(message.from_user.id):
-        await show_all_menu(message.chat.id)
-    else:
-        await show_main_menu(message.chat.id)
+    await show_main_menu(message.chat.id)
 
 
 @dp.callback_query_handler(lambda c: c.data == "admin_users")
@@ -1579,7 +1528,7 @@ async def  list_users_callback(callback: types.CallbackQuery):
         except:
             pass
         await bot.send_message(callback.message.chat.id, f"Количество пользователей: {len(cache.user_mapping)}")
-        await show_all_menu(callback.message.chat.id)
+        await show_admin_menu(callback.message.chat.id)
 
 
 # Обработчик кнопки "Рассылка"
@@ -1675,14 +1624,14 @@ async def confirm_broadcast(callback: types.CallbackQuery, state: FSMContext):
         await bot.delete_message(admin_id, status_msg.message_id)
     except:
         pass
-    await show_all_menu(callback.message.chat.id)
+    await show_admin_menu(callback.message.chat.id)
     await state.finish()
 
 # Обработчик отмены рассылки
 @dp.callback_query_handler(lambda c: c.data == "cancel_broadcast", state=BroadcastStates.CONFIRMATION)
 async def cancel_broadcast(callback: types.CallbackQuery, state: FSMContext):
     await state.finish()
-    await show_all_menu(callback.message.chat.id)
+    await show_admin_menu(callback.message.chat.id)
     try:
         await callback.message.delete()
     except:
