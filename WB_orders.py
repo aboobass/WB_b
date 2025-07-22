@@ -86,10 +86,11 @@ async def get_wb_product_cards(headers):
     cursor = None
     request_count = 0
     start_time = time.time()
-
+    i = 0
     try:
         async with aiohttp.ClientSession(headers=headers) as session:
-            while True:
+            while i < 50000:
+                i+=1
                 # Формируем тело запроса с пагинацией
                 payload = {
                     "settings": {
@@ -113,7 +114,7 @@ async def get_wb_product_cards(headers):
                     if response.status != 200:
                         print(f"Ошибка {response.status}: {await response.text()}")
                         if response.status == 429:
-                            reset_time = int(response.headers.get('Retry-After', 60))
+                            reset_time = 70
                             print(f"Лимит запросов. Пауза {reset_time} сек.")
                             await asyncio.sleep(reset_time)
                             continue
@@ -130,7 +131,7 @@ async def get_wb_product_cards(headers):
 
                     # Проверка завершения пагинации
                     cursor = data.get("cursor")
-                    if not cursor or cursor.get("total", 0) <= 0:
+                    if not cursor or cursor.get("total", 0) <= 100:
                         break
 
                     # Контроль лимита запросов (100/мин)
