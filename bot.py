@@ -223,6 +223,26 @@ async def show_main_menu(chat_id, message_text="Выберите действи�
     )
     await bot.send_message(chat_id, message_text, reply_markup=kb)
 
+async def show_all_menu(chat_id, message_text="Выберите роль:"):
+    kb = InlineKeyboardMarkup()
+    kb.add(InlineKeyboardButton("Админ", callback_data="admin_call"))
+    kb.add(InlineKeyboardButton("Пользователь", callback_data="user_call"))
+    await bot.send_message(chat_id, message_text, reply_markup=kb)
+
+@dp.callback_query_handler(lambda c: c.data == "admin_call")
+async def show_admin_menu_callback(callback: types.CallbackQuery):
+    msg = callback.message
+    await show_admin_menu(msg.chat.id)
+    await msg.delete()
+
+
+@dp.callback_query_handler(lambda c: c.data == "user_call")
+async def show_user_menu_callback(callback: types.CallbackQuery):
+    msg = callback.message
+    await show_main_menu(msg.chat.id)
+    await msg.delete()
+
+
 async def show_admin_menu(chat_id, message_text="Выберите действие:"):
     admin_kb = InlineKeyboardMarkup()
     admin_kb.add(InlineKeyboardButton("📢 Рассылка", callback_data="admin_broadcast"))
@@ -262,14 +282,9 @@ async def start_handler(message: types.Message):
     user_id = message.from_user.id
     await cache.load_data()
 
-    if is_admin(user_id):
-        admin_kb = InlineKeyboardMarkup()
-        admin_kb.add(InlineKeyboardButton("📢 Рассылка", callback_data="admin_broadcast"))
-        admin_kb.add(InlineKeyboardButton("📋 Узнать количество пользователей", callback_data="admin_users"))
-        await message.answer(
-            "👋 Привет, администратор!\nВы будете получать сообщения от пользователей.",
-            reply_markup=admin_kb
-        )
+    if is_admin(user_id) and cache.user_mapping.get(user_id):
+        await message.answer("👋 Привет, администратор!\nВы будете получать сообщения от пользователей.",)
+        await show_all_menu(message.chat.id)
         return
 
     if cache.user_mapping.get(user_id):
@@ -290,13 +305,17 @@ async def start_handler(message: types.Message):
 @dp.callback_query_handler(lambda c: c.data == "show_instruction")
 async def show_instruction_callback(callback: types.CallbackQuery):
     # Отправляем видео с инструкцией
+    msg = callback.message
     try:
         await callback.answer()
     except:
         pass
     video_url = "https://rutube.ru/video/7d44d613016e0a0d3c3a6bbe61517319/"
-    await callback.message.answer(f"📹 Инструкции пользования:\n{video_url}")
-    await show_main_menu(callback.message.chat.id)
+    await msg.answer(f"📹 Инструкции пользования:\n{video_url}")
+    if is_admin(callback.from_user.id):
+        await show_all_menu(msg.chat.id)
+    else:
+        await show_main_menu(msg.chat.id)
     
 
 @dp.callback_query_handler(lambda c: c.data == "watched_first_video")
@@ -342,19 +361,16 @@ async def start_registration_handler(callback: types.CallbackQuery):
 
 @dp.callback_query_handler(lambda c: c.data == "show_spreadsheet")
 async def show_spreadsheet_callback(callback: types.CallbackQuery):
+    msg = callback.message
     user_id = callback.from_user.id
-    if is_admin(user_id):
-        return
-    
     username = cache.user_mapping.get(user_id)
     if not username:
         await callback.answer("❌ Вы не привязаны к аккаунту", show_alert=True)
         return
-    
     try:
         await bot.delete_message(
-            chat_id=callback.message.chat.id,
-            message_id=callback.message.message_id)
+            chat_id=msg.chat.id,
+            message_id=msg.message_id)
     except:
         pass
     try:
@@ -374,16 +390,23 @@ async def show_spreadsheet_callback(callback: types.CallbackQuery):
         await bot.send_message(user_id, message)
     else:
         await callback.answer("❌ Ссылка на таблицу не найдена", show_alert=True)
-    await show_main_menu(callback.message.chat.id)
+    if is_admin(user_id):
+        await show_all_menu(msg.chat.id)
+    else:
+        await show_main_menu(msg.chat.id)
 
 @dp.callback_query_handler(lambda c: c.data == "cancel_action", state="*")
 async def cancel_action_handler(callback: types.CallbackQuery, state: FSMContext):
+    msg = callback.message
     try:
         await callback.answer()
     except:
         pass
     await state.finish()
-    await show_main_menu(callback.message.chat.id)
+    if is_admin(callback.from_user.id):
+        await show_all_menu(msg.chat.id)
+    else:
+        await show_main_menu(msg.chat.id)
 
 @dp.callback_query_handler(lambda c: c.data == "cancel_action_admin", state="*")
 async def cancel_action_admin_handler(callback: types.CallbackQuery, state: FSMContext):
@@ -392,7 +415,7 @@ async def cancel_action_admin_handler(callback: types.CallbackQuery, state: FSMC
     except:
         pass
     await state.finish()
-    await show_admin_menu(callback.message.chat.id)
+    await show_all_menu(callback.message.chat.id)
     try:
         await callback.message.delete()
     except:
@@ -401,8 +424,6 @@ async def cancel_action_admin_handler(callback: types.CallbackQuery, state: FSMC
 @dp.message_handler(commands=["add_cabinet"])
 async def add_cabinet_handler(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
-    if is_admin(user_id):
-        return
     
     username = cache.user_mapping.get(user_id)
     if not username:
@@ -466,7 +487,10 @@ async def process_new_cabinet_name(message: types.Message, state: FSMContext):
             response = "❌ Не удалось добавить кабинет. Обратитесь к администратору."
         
         await message.answer(response)
-        await show_main_menu(message.chat.id)
+        if is_admin(message.from_user.id):
+            await show_all_menu(message.chat.id)
+        else:
+            await show_main_menu(message.chat.id)
     except Exception as e:
         logging.error(f"Ошибка при добавлении кабинета: {e}")
         await message.answer("❌ Произошла ошибка при добавлении кабинета")
@@ -553,68 +577,77 @@ async def process_registration_cabinet_name(message: types.Message, state: FSMCo
         await message.answer("❌ Ошибка при инициализации таблицы")
 
     await state.finish()
-    await show_main_menu(message.chat.id)
+    if is_admin(message.from_user.id):
+        await show_all_menu(message.chat.id)
+    else:
+        await show_main_menu(message.chat.id)
 
 
 @dp.callback_query_handler(lambda c: c.data == "get_report")
 async def get_report_callback(callback: types.CallbackQuery):
+    msg = callback.message
     try:
         await callback.answer()
     except:
         pass
     user_id = callback.from_user.id
     logging.info(f"{user_id} | Нажата кнопка 'Получить отчёт'")
-    if not is_admin(user_id):
-        users = await cache.get_available_users_for_user(user_id)
-        logging.info(f"Доступные пользователи: {users}")
-        if not users or not users[0]:
-            try:
-                await callback.message.edit_text("⚠️ Вы не привязаны ни к одному пользователю.")
-            except MessageNotModified:
-                pass
-            logging.error(f"{user_id}  users = {users}")
-            await show_main_menu(callback.message.chat.id)
-            return
-
-        username = users[0]
-        cabinets = await cache.get_user_cabinets(username)
-        logging.info(f"Кабинеты пользователя {username}: {cabinets}")
-
-        if not cabinets:
-            try:
-                await callback.message.edit_text(f"⚠️ У пользователя {username} нет доступных личных кабинетов.")
-            except MessageNotModified:
-                pass
-            logging.error(f"{user_id}  cabinets = {cabinets}")
-            await show_main_menu(callback.message.chat.id)
-            return
-
-        keyboard = InlineKeyboardMarkup(row_width=1)
-
-        for cabinet in cabinets:
-            keyboard.add(InlineKeyboardButton( 
-                text=cabinet, callback_data=f"get_report:{username}:{cabinet}"))
-            logging.info(f"{user_id} Кабинет {cabinet} добавлен к клавинатуре")
-        
-        keyboard.add(InlineKeyboardButton(
-            text="Все", callback_data=f"get_report:{username}:all"))
-
-        keyboard.add(InlineKeyboardButton(
-            "🔙 Назад", callback_data="back_to_main"))
-        
-        logging.info(f"{user_id} Все кабинеты добавлены к клавинатуре")
+    users = await cache.get_available_users_for_user(user_id)
+    logging.info(f"Доступные пользователи: {users}")
+    if not users or not users[0]:
         try:
-            logging.info(f"{user_id} До изменения сообщения")
-            await callback.message.edit_text(f"Выберите личный кабинет:", reply_markup=keyboard)
-            logging.info(f"{user_id} После изменения сообщения")
+            await msg.edit_text("⚠️ Вы не привязаны ни к одному пользователю.")
         except MessageNotModified:
-            logging.error(f"{user_id} MessageNotModified ")
             pass
-        except:
-            logging.info(f"{user_id} Не удалось изменить, отправка сообщения")
-            await bot.send_message(callback.from_user.id, f"Выберите личный кабинет:", reply_markup=keyboard)
-            logging.info(f"{user_id} Сообщение отправлено")
-        logging.info(f"{user_id} SUCCESS")
+        logging.error(f"{user_id}  users = {users}")
+        if is_admin(user_id):
+            await show_all_menu(msg.chat.id)
+        else:
+            await show_main_menu(msg.chat.id)
+        return
+
+    username = users[0]
+    cabinets = await cache.get_user_cabinets(username)
+    logging.info(f"Кабинеты пользователя {username}: {cabinets}")
+
+    if not cabinets:
+        try:
+            await msg.edit_text(f"⚠️ У пользователя {username} нет доступных личных кабинетов.")
+        except MessageNotModified:
+            pass
+        logging.error(f"{user_id}  cabinets = {cabinets}")
+        if is_admin(user_id):
+            await show_all_menu(msg.chat.id)
+        else:
+            await show_main_menu(msg.chat.id)
+        return
+
+    keyboard = InlineKeyboardMarkup(row_width=1)
+
+    for cabinet in cabinets:
+        keyboard.add(InlineKeyboardButton( 
+            text=cabinet, callback_data=f"get_report:{username}:{cabinet}"))
+        logging.info(f"{user_id} Кабинет {cabinet} добавлен к клавинатуре")
+    
+    keyboard.add(InlineKeyboardButton(
+        text="Все", callback_data=f"get_report:{username}:all"))
+
+    keyboard.add(InlineKeyboardButton(
+        "🔙 Назад", callback_data="back_to_main"))
+    
+    logging.info(f"{user_id} Все кабинеты добавлены к клавинатуре")
+    try:
+        logging.info(f"{user_id} До изменения сообщения")
+        await callback.message.edit_text(f"Выберите личный кабинет:", reply_markup=keyboard)
+        logging.info(f"{user_id} После изменения сообщения")
+    except MessageNotModified:
+        logging.error(f"{user_id} MessageNotModified ")
+        pass
+    except:
+        logging.info(f"{user_id} Не удалось изменить, отправка сообщения")
+        await bot.send_message(callback.from_user.id, f"Выберите личный кабинет:", reply_markup=keyboard)
+        logging.info(f"{user_id} Сообщение отправлено")
+    logging.info(f"{user_id} SUCCESS")
         
 @dp.callback_query_handler(lambda c: c.data == "back_to_main")
 async def back_to_main_callback(callback: types.CallbackQuery):
@@ -624,6 +657,8 @@ async def back_to_main_callback(callback: types.CallbackQuery):
         pass
     if not is_admin(callback.from_user.id):
         await show_main_menu(callback.message.chat.id)
+    else:
+        await show_all_menu(callback.message.chat.id)
     try:
         await callback.message.delete()
     except:
@@ -688,8 +723,6 @@ async def process_report_callback(callback: types.CallbackQuery):
     except:
         pass
     user_id = callback.from_user.id
-    if is_admin(user_id):
-        return
     
     parts = callback.data.split(":")
     username = parts[1]
@@ -752,8 +785,10 @@ async def process_report_callback(callback: types.CallbackQuery):
             await bot.delete_message(user_id, wait_message.message_id)
         except:
             pass
-
-    await show_main_menu(callback.message.chat.id)
+    if is_admin(user_id):
+        await show_all_menu(callback.message.chat.id)
+    else:
+        await show_main_menu(callback.message.chat.id)
 
 async def add_articles_to_sheet(worksheet, articles):
     """Добавляет артикулы и баркоды в лист таблицы с сортировкой"""
@@ -1124,14 +1159,18 @@ async def back_to_cabinets_callback(callback: types.CallbackQuery, state: FSMCon
 
 @dp.callback_query_handler(lambda c: c.data == "cancel_manage", state=ManageCabinetStates.all_states)
 async def cancel_manage_callback(callback: types.CallbackQuery, state: FSMContext):
+    msg = callback.message
     try:
         await callback.answer()
     except:
         pass
     await state.finish()
-    await show_main_menu(callback.message.chat.id)
+    if is_admin(callback.from_user.id):
+        await show_all_menu(msg.chat.id)
+    else:
+        await show_main_menu(msg.chat.id)
     try:
-        await callback.message.delete()
+        await msg.delete()
     except:
         pass
 
@@ -1155,8 +1194,6 @@ async def rename_cabinet_callback(callback: types.CallbackQuery, state: FSMConte
 async def process_new_cabinet_name2(message: types.Message, state: FSMContext):
     new_name = message.text.strip()
     user_id = message.from_user.id
-    if is_admin(user_id):
-        return
 
     if not validate_cabinet_name(new_name):
         await message.answer("❌ Название кабинета должно начинаться с буквы, состоять только из букв и цифр и быть короче 50 символов!")
@@ -1175,7 +1212,10 @@ async def process_new_cabinet_name2(message: types.Message, state: FSMContext):
     else:
         await message.answer("❌ Ошибка при переименовании кабинета")
     await state.finish()
-    await show_main_menu(message.chat.id)
+    if is_admin(user_id):
+        await show_all_menu(message.chat.id)
+    else:
+        await show_main_menu(message.chat.id)
     try:
         await bot.delete_message(message.chat.id, wait_message.message_id)
     except:
@@ -1210,19 +1250,18 @@ async def update_cabinet_name(username: str, old_name: str, new_name: str) -> bo
 
 @dp.callback_query_handler(lambda c: c.data == "delete_cabinet", state=ManageCabinetStates.ACTION_CHOICE)
 async def delete_cabinet_callback(callback: types.CallbackQuery, state: FSMContext):
+    msg = callback.message
     try:
         await callback.answer()
     except:
         pass
 
-    if is_admin(callback.from_user.id):
-        return
     async with state.proxy() as data:
         cabinet_name = data['cabinet']
         username = data['username']
 
     try:
-        wait_message = await callback.message.edit_text(
+        wait_message = await msg.edit_text(
             text="🔄 Ожидайте 30 сек, идёт удаление кабинета...",
             reply_markup=None  # Убираем клавиатуру
         )
@@ -1231,20 +1270,25 @@ async def delete_cabinet_callback(callback: types.CallbackQuery, state: FSMConte
     except Exception as e:
         logging.error(f"Ошибка редактирования сообщения: {e}")
         # Если не удалось отредактировать, отправляем новое сообщение    
-        wait_message = await callback.message.answer("🔄 Ожидайте 30 сек, идёт удаление кабинета...", reply_markup=main_menu_keyboard)
+        wait_message = await msg.answer("🔄 Ожидайте 30 сек, идёт удаление кабинета...", reply_markup=main_menu_keyboard)
     
     success = await delete_cabinet(username, cabinet_name)
     if success:
-        await callback.message.answer(f"✅ Кабинет '{cabinet_name}' успешно удалён")
+        await msg.answer(f"✅ Кабинет '{cabinet_name}' успешно удалён")
         # cache.config_cache = None
         await cache.update_user_in_cache(username)
     else:
-        await callback.message.answer(f"❌ Ошибка при удалении кабинета '{cabinet_name}'")
+        await msg.answer(f"❌ Ошибка при удалении кабинета '{cabinet_name}'")
     await state.finish()
-    await show_main_menu(callback.message.chat.id)
+    if is_admin(callback.from_user.id):
+        await show_all_menu(msg.chat.id)
+    else:
+        await show_main_menu(msg.chat.id)
+    
+
     await state.finish()
     try:
-        await bot.delete_message(callback.message.chat.id, wait_message.message_id)
+        await bot.delete_message(msg.chat.id, wait_message.message_id)
     except:
         pass
 
@@ -1323,16 +1367,18 @@ async def delete_cabinet(username: str, cabinet_name: str) -> bool:
 
 @dp.callback_query_handler(lambda c: c.data == "refresh_articles", state=ManageCabinetStates.ACTION_CHOICE)
 async def refresh_articles_callback(callback: types.CallbackQuery, state: FSMContext):
-    if is_admin(callback.from_user.id):
-        return
     async with state.proxy() as data:
         cabinet_name = data['cabinet']
         username = data['username']
-
+    msg = callback.message
     api_key = await get_cabinet_api_key(username, cabinet_name)
     if not api_key:
         await callback.answer("❌ Не удалось получить API ключ для кабинета")
         await state.finish()
+        if is_admin(callback.from_user.id):
+            await show_all_menu(msg.chat.id)
+        else:
+            await show_main_menu(msg.chat.id)
         await show_main_menu(callback.message.chat.id)
         return
 
@@ -1340,7 +1386,10 @@ async def refresh_articles_callback(callback: types.CallbackQuery, state: FSMCon
     if not spreadsheet_url:
         await callback.answer("❌ Не удалось найти таблицу пользователя")
         await state.finish()
-        await show_main_menu(callback.message.chat.id)
+        if is_admin(callback.from_user.id):
+            await show_all_menu(msg.chat.id)
+        else:
+            await show_main_menu(msg.chat.id)
         return
 
     try:
@@ -1380,7 +1429,12 @@ async def refresh_articles_callback(callback: types.CallbackQuery, state: FSMCon
         logging.error(f"Ошибка обновления артикулов: {e}")
         await bot.send_message(callback.from_user.id, "❌ Ошибка при обновлении артикулов")
     await state.finish()
-    await show_main_menu(callback.message.chat.id)
+
+    if is_admin(callback.from_user.id):
+        await show_all_menu(callback.message.chat.id)
+    else:
+        await show_main_menu(callback.message.chat.id)
+
 
 async def get_actual_articles(worksheet):
     existing_pairs = set()
@@ -1466,7 +1520,11 @@ async def process_support_question(message: types.Message, state: FSMContext):
 
     await message.answer("✅ Ваш вопрос отправлен в поддержку. Ожидайте ответа.")
     await state.finish()
-    await show_main_menu(message.chat.id)
+
+    if is_admin(user_id):
+        await show_all_menu(message.chat.id)
+    else:
+        await show_main_menu(message.chat.id)
 
 @dp.callback_query_handler(lambda c: c.data.startswith("reply_to:"))
 async def reply_to_user_callback(callback: types.CallbackQuery, state: FSMContext):
@@ -1504,12 +1562,13 @@ async def process_support_reply(message: types.Message, state: FSMContext):
 # Обработчик кнопки "Главное меню"
 @dp.message_handler(lambda message: message.text == "Главное меню", state="*")
 async def main_menu_button_handler(message: types.Message, state: FSMContext):
-    if is_admin(message.from_user.id):
-        return
     current_state = await state.get_state()
     if current_state:
         await state.finish()
-    await show_main_menu(message.chat.id)
+    if is_admin(message.from_user.id):
+        await show_all_menu(message.chat.id)
+    else:
+        await show_main_menu(message.chat.id)
 
 
 @dp.callback_query_handler(lambda c: c.data == "admin_users")
@@ -1520,7 +1579,7 @@ async def  list_users_callback(callback: types.CallbackQuery):
         except:
             pass
         await bot.send_message(callback.message.chat.id, f"Количество пользователей: {len(cache.user_mapping)}")
-        await show_admin_menu(callback.message.chat.id)
+        await show_all_menu(callback.message.chat.id)
 
 
 # Обработчик кнопки "Рассылка"
@@ -1616,14 +1675,14 @@ async def confirm_broadcast(callback: types.CallbackQuery, state: FSMContext):
         await bot.delete_message(admin_id, status_msg.message_id)
     except:
         pass
-    await show_admin_menu(callback.message.chat.id)
+    await show_all_menu(callback.message.chat.id)
     await state.finish()
 
 # Обработчик отмены рассылки
 @dp.callback_query_handler(lambda c: c.data == "cancel_broadcast", state=BroadcastStates.CONFIRMATION)
 async def cancel_broadcast(callback: types.CallbackQuery, state: FSMContext):
     await state.finish()
-    await show_admin_menu(callback.message.chat.id)
+    await show_all_menu(callback.message.chat.id)
     try:
         await callback.message.delete()
     except:
