@@ -95,7 +95,7 @@ async def get_wb_product_cards(headers):
                 payload = {
                     "settings": {
                         "filter": {"withPhoto": -1},
-                        "limit": 100
+                        "cursor": {"limit": 100}
                     }
                 }
 
