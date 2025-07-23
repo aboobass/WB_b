@@ -246,8 +246,8 @@ async def show_user_menu_callback(callback: types.CallbackQuery):
 async def show_admin_menu(chat_id, message_text="Выберите действие:"):
     admin_kb = InlineKeyboardMarkup()
     admin_kb.row(
-        InlineKeyboardButton("📋 Количество пользователей", callback_data="admin_users"),
-        InlineKeyboardButton("📋 Список пользователей", callback_data="admin_users_list")
+        InlineKeyboardButton("📋 Количество 🧑‍🧒‍🧒", callback_data="admin_users"),
+        InlineKeyboardButton("📋 Список 🧑‍🧒‍🧒", callback_data="admin_users_list")
     )
     admin_kb.add(InlineKeyboardButton("📢 Рассылка", callback_data="admin_broadcast"))
     await bot.send_message(chat_id, message_text, reply_markup=admin_kb)
