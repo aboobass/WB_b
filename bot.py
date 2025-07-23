@@ -245,8 +245,11 @@ async def show_user_menu_callback(callback: types.CallbackQuery):
 
 async def show_admin_menu(chat_id, message_text="Выберите действие:"):
     admin_kb = InlineKeyboardMarkup()
+    admin_kb.row(
+        InlineKeyboardButton("📋 Количество пользователей", callback_data="admin_users"),
+        InlineKeyboardButton("📋 Список пользователей", callback_data="admin_users_list")
+    )
     admin_kb.add(InlineKeyboardButton("📢 Рассылка", callback_data="admin_broadcast"))
-    admin_kb.add(InlineKeyboardButton("📋 Узнать количество пользователей", callback_data="admin_users"))
     await bot.send_message(chat_id, message_text, reply_markup=admin_kb)
 
 
@@ -1521,7 +1524,7 @@ async def main_menu_button_handler(message: types.Message, state: FSMContext):
 
 
 @dp.callback_query_handler(lambda c: c.data == "admin_users")
-async def  list_users_callback(callback: types.CallbackQuery):
+async def  count_users_callback(callback: types.CallbackQuery):
     if is_admin(callback.from_user.id):
         try:
             await callback.message.delete()
@@ -1530,6 +1533,86 @@ async def  list_users_callback(callback: types.CallbackQuery):
         await bot.send_message(callback.message.chat.id, f"Количество пользователей: {len(cache.user_mapping)}")
         await show_admin_menu(callback.message.chat.id)
 
+
+@dp.callback_query_handler(lambda c: c.data == "admin_users_list")
+async def list_users_callback(callback: types.CallbackQuery):
+    msg = callback.message
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+
+    try:
+        await callback.answer()
+    except:
+        pass
+
+    try:
+        # Создаем DataFrame с данными пользователей
+        users_data = []
+        for telegram_id, username in cache.user_mapping.items():
+            try:
+                # Получаем информацию о пользователе из Telegram API
+                user = await bot.get_chat(telegram_id)
+                telegram_username = user.username if user.username else "нет username"
+                users_data.append({
+                    "telegram_id": telegram_id,
+                    "telegram_username": f"@{telegram_username}" if telegram_username != "нет username" else telegram_username
+                })
+            except Exception as e:
+                logging.error(f"Ошибка получения информации о пользователе {telegram_id}: {e}")
+                users_data.append({
+                    "telegram_id": telegram_id,
+                    "telegram_username": "недоступен"
+                })
+
+        df = pd.DataFrame(users_data)
+
+        # Создаем временный файл Excel
+        with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as temp_file:
+            file_path = temp_file.name
+
+        with pd.ExcelWriter(file_path, engine='xlsxwriter') as writer:
+            df.to_excel(writer, sheet_name='Пользователи', index=False)
+            
+            # Настраиваем форматирование
+            workbook = writer.book
+            worksheet = writer.sheets['Пользователи']
+            
+            # Устанавливаем ширину столбцов
+            worksheet.set_column('A:A', 15)  # telegram_id
+            worksheet.set_column('B:B', 25)  # telegram_username
+            
+            # Добавляем заголовки жирным
+            header_format = workbook.add_format({'bold': True})
+            for col_num, value in enumerate(df.columns.values):
+                worksheet.write(0, col_num, value, header_format)
+
+        # Отправляем файл администратору
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+        file_name = f"Список_пользователей_{timestamp}.xlsx"
+        excel_file = InputFile(file_path, filename=file_name)
+        
+        await bot.send_document(
+            chat_id=callback.from_user.id,
+            document=excel_file,
+            caption=f"📋 Список пользователей бота (всего: {len(df)})"
+        )
+        
+        # Удаляем временный файл
+        os.unlink(file_path)
+        
+    except Exception as e:
+        logging.error(f"Ошибка при формировании списка пользователей: {e}")
+        await bot.send_message(
+            callback.from_user.id,
+            "❌ Произошла ошибка при формировании списка пользователей"
+        )
+    finally:
+        await show_admin_menu(callback.message.chat.id)
+    try:
+        await msg.delete()
+    except:
+        pass
 
 # Обработчик кнопки "Рассылка"
 @dp.callback_query_handler(lambda c: c.data == "admin_broadcast")
