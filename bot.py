@@ -20,10 +20,9 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram.utils.exceptions import MessageNotModified
 
 
-from config import API_TOKEN, CONFIG_URL, ADMIN_IDS, CREDS, CONFIG_SHEET_ID
+from config import API_TOKEN, CONFIG_URL, ADMIN_IDS, CREDS, CONFIG_SHEET_ID, YOOKASSA_TOKEN, YOOKASSA_TEST_TOKEN
 from Wb_bot import get_available_users_from_config, get_user_cabinets, generate_report, main_from_config
 from WB_orders import get_wb_product_cards
-from payments import create_payment
 
 # Добавляем клавиатуру с кнопкой "Главное меню"
 main_menu_keyboard = ReplyKeyboardMarkup(resize_keyboard=True).add(KeyboardButton("Главное меню"))
@@ -254,16 +253,81 @@ async def show_admin_menu(chat_id, message_text="Выберите действи
     await bot.send_message(chat_id, message_text, reply_markup=admin_kb)
 
 
+# В начало файла (в раздел импортов) добавьте:
+from aiogram.types import LabeledPrice
+
+# В раздел констант добавьте:
+PAYMENT_PROVIDER_TOKEN = YOOKASSA_TEST_TOKEN  # Используем тестовый токен
+PAYMENT_TITLE = "Подписка на бота ПРИБЫЛЬ СЕЙЧАС | WB"
+PAYMENT_DESCRIPTION = "Доступ к функционалу бота на 1 месяц"
 
 
-# @dp.callback_query_handler(lambda c: c.data == "subscribe")
+# Добавьте новый обработчик команды /buy:
 @dp.message_handler(commands=["buy"])
-async def subscribe_callback(message: types.Message):
-    a,b = await create_payment(100, message.chat.id)
-    await bot.send_message(message.chat.id, f"{a}\n{b}")
-    # kb = InlineKeyboardMarkup()
-    # kb.add(InlineKeyboardButton("💳 Перейти к оплате", url=YOOKASSA_PAYMENT_URL))
-    # kb.add(InlineKeyboardButton("🔙 Назад", callback_data="back_to_main"))
+async def buy_handler(message: types.Message):
+    user_id = message.from_user.id
+
+    # Проверяем, зарегистрирован ли пользователь
+    if not cache.user_mapping.get(user_id):
+        await message.answer("❌ Для оформления подписки сначала зарегистрируйтесь с помощью /start")
+        return
+
+    # Создаем инвойс
+    prices = [LabeledPrice(label="Подписка на 1 месяц", amount=SUBSCRIPTION_PRICE * 100)]  # сумма в копейках
+
+    try:
+        await bot.send_invoice(
+            chat_id=message.chat.id,
+            title=PAYMENT_TITLE,
+            description=PAYMENT_DESCRIPTION,
+            provider_token=PAYMENT_PROVIDER_TOKEN,
+            currency="RUB",
+            prices=prices,
+            payload=f"subscription_{user_id}",
+            start_parameter="subscription",
+            photo_url="https://via.placeholder.com/150",  # можно заменить на реальное изображение
+            photo_size=100,
+            photo_width=800,
+            photo_height=450,
+            need_name=False,
+            need_phone_number=False,
+            need_email=False,
+            need_shipping_address=False,
+            is_flexible=False,
+            disable_notification=False,
+            protect_content=False,
+            reply_to_message_id=None,
+            reply_markup=None
+        )
+    except Exception as e:
+        logging.error(f"Ошибка при создании инвойса: {e}")
+        await message.answer("❌ Произошла ошибка при создании платежа. Попробуйте позже.")
+
+
+# Добавьте обработчик успешной оплаты:
+@dp.pre_checkout_query_handler()
+async def process_pre_checkout_query(pre_checkout_query: types.PreCheckoutQuery):
+    await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
+
+
+# Добавьте обработчик успешного платежа:
+@dp.message_handler(content_types=types.ContentType.SUCCESSFUL_PAYMENT)
+async def process_successful_payment(message: types.Message):
+    user_id = message.from_user.id
+    payment_info = message.successful_payment
+
+    # Здесь можно сохранить информацию об оплате в базу данных
+    # или выполнить другие действия после успешной оплаты
+
+    await bot.send_message(
+        chat_id=message.chat.id,
+        text=f"✅ Платеж на сумму {payment_info.total_amount // 100} руб. успешно завершен!\n"
+             "Теперь вам доступен полный функционал бота."
+    )
+
+    # Можно также обновить статус подписки пользователя
+    # Например: await update_user_subscription(user_id, True)
+
 
 
 @dp.message_handler(commands=["start"])
