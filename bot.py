@@ -23,6 +23,7 @@ from aiogram.utils.exceptions import MessageNotModified
 from config import API_TOKEN, CONFIG_URL, ADMIN_IDS, CREDS, CONFIG_SHEET_ID
 from Wb_bot import get_available_users_from_config, get_user_cabinets, generate_report, main_from_config
 from WB_orders import get_wb_product_cards
+from payments import create_payment
 
 # Добавляем клавиатуру с кнопкой "Главное меню"
 main_menu_keyboard = ReplyKeyboardMarkup(resize_keyboard=True).add(KeyboardButton("Главное меню"))
@@ -253,32 +254,17 @@ async def show_admin_menu(chat_id, message_text="Выберите действи
     await bot.send_message(chat_id, message_text, reply_markup=admin_kb)
 
 
-@dp.callback_query_handler(lambda c: c.data == "subscribe")
-async def subscribe_callback(callback: types.CallbackQuery):
-    user_id = callback.from_user.id
-    kb = InlineKeyboardMarkup()
-    kb.add(InlineKeyboardButton("💳 Перейти к оплате", url=YOOKASSA_PAYMENT_URL))
-    kb.add(InlineKeyboardButton("🔙 Назад", callback_data="back_to_main"))
-    message = (
-        "🤖 *Что умеет этот бот?*\n\n"
-        "Автоматизированная аналитика для продавцов Wildberries:\n"
-        "✅ Ежедневные отчеты в заданное время\n"
-        "✅ Анализ прибыли по каждому артикулу\n"
-        "✅ Автоматическое обновление данных\n"
-        "✅ Поддержку до 7 личных кабинетов\n"
-        f"Стоимость подписки: *{SUBSCRIPTION_PRICE} руб./месяц*\n\n"
-        "После оплаты доступ будет активирован в течение 5 минут"
-    )
-    await bot.send_message(
-        user_id,
-        message,
-        parse_mode="Markdown",
-        reply_markup=kb
-    )
-    try:
-        await callback.answer()
-    except:
-        pass
+
+
+# @dp.callback_query_handler(lambda c: c.data == "subscribe")
+@dp.message_handler(commands=["buy"])
+async def subscribe_callback(message: types.Message):
+    a,b = await create_payment(100, message.chat.id)
+    await bot.send_message(message.chat.id, f"{a}\n{b}")
+    # kb = InlineKeyboardMarkup()
+    # kb.add(InlineKeyboardButton("💳 Перейти к оплате", url=YOOKASSA_PAYMENT_URL))
+    # kb.add(InlineKeyboardButton("🔙 Назад", callback_data="back_to_main"))
+
 
 @dp.message_handler(commands=["start"])
 async def start_handler(message: types.Message):
