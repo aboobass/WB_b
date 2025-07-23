@@ -44,10 +44,10 @@ DEFAULT_TIME = t(6, 0, tzinfo=MOSCOW_TZ)
 DATA_FILE = "user_data.json"
 
 # Добавляем константы для оплаты
-SUBSCRIPTION_PRICE = 500
+SUBSCRIPTION_PRICE = 1
 YOOKASSA_PAYMENT_URL = "https://yookassa.ru/"
 
-PAYMENT_PROVIDER_TOKEN = YOOKASSA_TEST_TOKEN  # Используем тестовый токен
+PAYMENT_PROVIDER_TOKEN = YOOKASSA_TOKEN  # Используем тестовый токен
 PAYMENT_TITLE = "Подписка на бота ПРИБЫЛЬ СЕЙЧАС | WB"
 PAYMENT_DESCRIPTION = "Доступ к функционалу бота на 1 месяц"
 
@@ -298,9 +298,6 @@ async def buy_handler(message: types.Message):
             payload=f"subscription_{user_id}",
             start_parameter="subscription",
             photo_url="https://via.placeholder.com/150",
-            need_phone_number=False,
-            need_email=False,
-            need_shipping_address=False,
             is_flexible=False
         )
     except Exception as e:
