@@ -18,6 +18,7 @@ from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram.utils.exceptions import MessageNotModified
+from aiogram.types import LabeledPrice
 
 
 from config import API_TOKEN, CONFIG_URL, ADMIN_IDS, CREDS, CONFIG_SHEET_ID, YOOKASSA_TOKEN, YOOKASSA_TEST_TOKEN
@@ -45,6 +46,10 @@ DATA_FILE = "user_data.json"
 # Добавляем константы для оплаты
 SUBSCRIPTION_PRICE = 500
 YOOKASSA_PAYMENT_URL = "https://yookassa.ru/"
+
+PAYMENT_PROVIDER_TOKEN = YOOKASSA_TEST_TOKEN  # Используем тестовый токен
+PAYMENT_TITLE = "Подписка на бота ПРИБЫЛЬ СЕЙЧАС | WB"
+PAYMENT_DESCRIPTION = "Доступ к функционалу бота на 1 месяц"
 
 # Состояния для добавления пользователя
 class UserRegistrationStates(StatesGroup):
@@ -253,29 +258,36 @@ async def show_admin_menu(chat_id, message_text="Выберите действи
     await bot.send_message(chat_id, message_text, reply_markup=admin_kb)
 
 
-# В начало файла (в раздел импортов) добавьте:
-from aiogram.types import LabeledPrice
+# Добавьте новую команду для проверки платежей
+@dp.message_handler(commands=["checkpayments"])
+async def check_payments_status(message: types.Message):
+    await message.answer(
+        f"Статус платежной системы:\n"
+        f"• Токен: {'установлен' if PAYMENT_PROVIDER_TOKEN else 'отсутствует'}\n"
+        f"• Режим: {'ТЕСТОВЫЙ' if 'TEST' in (PAYMENT_PROVIDER_TOKEN or '') else 'боевой'}"
+    )
 
-# В раздел констант добавьте:
-PAYMENT_PROVIDER_TOKEN = YOOKASSA_TEST_TOKEN  # Используем тестовый токен
-PAYMENT_TITLE = "Подписка на бота ПРИБЫЛЬ СЕЙЧАС | WB"
-PAYMENT_DESCRIPTION = "Доступ к функционалу бота на 1 месяц"
 
-
-# Добавьте новый обработчик команды /buy:
+# Улучшенный обработчик команды /buy
 @dp.message_handler(commands=["buy"])
 async def buy_handler(message: types.Message):
+    if not PAYMENT_PROVIDER_TOKEN:
+        await message.answer("❌ Платежная система временно недоступна")
+        return
+
     user_id = message.from_user.id
 
-    # Проверяем, зарегистрирован ли пользователь
     if not cache.user_mapping.get(user_id):
         await message.answer("❌ Для оформления подписки сначала зарегистрируйтесь с помощью /start")
         return
 
-    # Создаем инвойс
-    prices = [LabeledPrice(label="Подписка на 1 месяц", amount=SUBSCRIPTION_PRICE * 100)]  # сумма в копейках
+    prices = [LabeledPrice(label="Подписка на 1 месяц", amount=SUBSCRIPTION_PRICE * 100)]
 
     try:
+        # Добавляем клавиатуру с кнопкой "Отмена"
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("❌ Отмена", callback_data="cancel_payment"))
+
         await bot.send_invoice(
             chat_id=message.chat.id,
             title=PAYMENT_TITLE,
@@ -285,23 +297,24 @@ async def buy_handler(message: types.Message):
             prices=prices,
             payload=f"subscription_{user_id}",
             start_parameter="subscription",
-            photo_url="https://via.placeholder.com/150",  # можно заменить на реальное изображение
-            photo_size=100,
-            photo_width=800,
-            photo_height=450,
-            need_name=False,
+            photo_url="https://via.placeholder.com/150",
             need_phone_number=False,
             need_email=False,
             need_shipping_address=False,
             is_flexible=False,
-            disable_notification=False,
-            protect_content=False,
-            reply_to_message_id=None,
-            reply_markup=None
+            reply_markup=markup
         )
     except Exception as e:
-        logging.error(f"Ошибка при создании инвойса: {e}")
+        logging.error(f"Ошибка при создании инвойса: {str(e)}")
         await message.answer("❌ Произошла ошибка при создании платежа. Попробуйте позже.")
+
+
+# Обработчик отмены платежа
+@dp.callback_query_handler(lambda c: c.data == "cancel_payment")
+async def cancel_payment(callback: types.CallbackQuery):
+    await callback.answer("Платеж отменен")
+    await callback.message.delete()
+    await show_main_menu(callback.message.chat.id)
 
 
 # Добавьте обработчик успешной оплаты:
