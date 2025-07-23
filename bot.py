@@ -44,7 +44,7 @@ DEFAULT_TIME = t(6, 0, tzinfo=MOSCOW_TZ)
 DATA_FILE = "user_data.json"
 
 # Добавляем константы для оплаты
-SUBSCRIPTION_PRICE = 1
+SUBSCRIPTION_PRICE = 100
 YOOKASSA_PAYMENT_URL = "https://yookassa.ru/"
 
 PAYMENT_PROVIDER_TOKEN = YOOKASSA_TOKEN  # Используем тестовый токен
