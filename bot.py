@@ -879,7 +879,7 @@ def get_available_spreadsheet(username: str) -> dict:
                 # Помечаем таблицу как занятую
                 pool_sheet.update_cell(i + 1, 3, username)
                 return {'url': url, 'id': extract_spreadsheet_id(url)}
-        return None
+        return None 
     except Exception as e:
         logging.error(f"Ошибка получения таблицы из пула: {e}")
         return None

@@ -173,7 +173,7 @@ async def get_orders_statistics(headers, nm_ids, date_from=None, date_to=None, s
             "timezone": "Europe/Moscow",
             "aggregationLevel": "day"
         }
-
+        await asyncio.sleep(0.2)
         try:
             async with aiohttp.ClientSession(headers=headers) as session:
                 async with session.post(
@@ -206,7 +206,7 @@ async def get_orders_statistics(headers, nm_ids, date_from=None, date_to=None, s
                         state['retry_count'] = 0  # Сбрасываем счетчик повторов
 
                     elif response.status == 429:
-                        retry_after = 20
+                        retry_after = 30
                         logging.warning(f"429 error. Retry after: {retry_after}")
                         
                         # Увеличиваем счетчик повторов

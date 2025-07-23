@@ -9,6 +9,7 @@ import logging
 async def safe_request(HEADERS, url, method='GET', json_data=None, params=None, max_retries=3):
     for attempt in range(max_retries):
         try:
+            await asyncio.sleep(0.2)
             async with aiohttp.ClientSession(headers=HEADERS) as session:
                 if method == 'GET':
                     async with session.get(url, params=params, json=json_data, timeout=30) as response:
