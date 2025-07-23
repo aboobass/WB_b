@@ -301,8 +301,7 @@ async def buy_handler(message: types.Message):
             need_phone_number=False,
             need_email=False,
             need_shipping_address=False,
-            is_flexible=False,
-            reply_markup=markup
+            is_flexible=False
         )
     except Exception as e:
         logging.error(f"Ошибка при создании инвойса: {str(e)}")
