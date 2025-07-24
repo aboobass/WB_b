@@ -1,10 +1,18 @@
 {
     "user_mapping": {
         "6340428712": "user_6340428712",
-        "484879452": "user_484879452"
+        "484879452": "user_484879452",
+        "1405506206": "user_1405506206",
+        "784291592": "user_784291592",
+        "1417805310": "user_1417805310",
+        "300367772": "user_300367772"
     },
     "user_spreadsheet_urls": {
         "user_6340428712": "https://docs.google.com/spreadsheets/d/1L-B34PNtgcrA_sUQ76GynND0zIV7RcokFsRZcghsR30",
-        "user_484879452": "https://docs.google.com/spreadsheets/d/1UCfeGuU20-Zlnj2iUKoUSAHoKgDYAbjVazxKYm6wk4c"
+        "user_484879452": "https://docs.google.com/spreadsheets/d/1UCfeGuU20-Zlnj2iUKoUSAHoKgDYAbjVazxKYm6wk4c",
+        "user_1405506206": "https://docs.google.com/spreadsheets/d/1UhBY87QxqCbuv_FwQ7GCH8NhJIU_5I1HAx60DNXHzQM",
+        "user_784291592": "https://docs.google.com/spreadsheets/d/1nLgN3tGvKCxw2vtdqj1RzbmTxxgaNCWZD5vOTS1Eh4M",
+        "user_1417805310": "https://docs.google.com/spreadsheets/d/1kFeFzUq5g9cA5hjbunygNwf0_irH21bowzSCm8yyqmg",
+        "user_300367772": "https://docs.google.com/spreadsheets/d/1THFwTfUFQlNPnDDf1UjBzeVPAa9kKms6I7f4HRbIbsg"
     }
 }
