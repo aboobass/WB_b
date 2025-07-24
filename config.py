@@ -4,7 +4,7 @@ CONFIG_URL = "https://docs.google.com/spreadsheets/d/14yawg6EXbXus8R3Q9JvaZA4eQb
 CONFIG_SHEET_ID = '14yawg6EXbXus8R3Q9JvaZA4eQboX1vdN1GEFzZzwKJs'
 # токен бота
 # API_TOKEN = "8194459741:AAGx3YOGtQy96ZAJJiou9u4sUewLHIXScmQ"
-API_TOKEN = "8194459741:AAGx3YOGtQy96ZAJJiou9u4sUewLHIXScmQ"
+API_TOKEN = "7765052912:AAFeX7RxFtRy2hrnlWoaFn-eTgMp5th5pGk"
 # ADMIN_IDS = []  # ID админов через запятую
 ADMIN_IDS = [784291592]  # ID админов через запятую
 
