@@ -1,13 +1,10 @@
 from aiogram.types import InputFile, ReplyKeyboardMarkup, KeyboardButton
-import pytz
-from datetime import time as t, datetime, timedelta
+from datetime import datetime
 import asyncio
 import logging
 import json
 import os
 import gspread
-import time
-import requests
 import aiohttp
 import pandas as pd
 import tempfile
@@ -20,8 +17,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram.utils.exceptions import MessageNotModified
 from aiogram.types import LabeledPrice
 
-
-from config import API_TOKEN, CONFIG_URL, ADMIN_IDS, CREDS, CONFIG_SHEET_ID, YOOKASSA_TOKEN, YOOKASSA_TEST_TOKEN
+from config import API_TOKEN, CONFIG_URL, ADMIN_IDS, CREDS, CONFIG_SHEET_ID, MOSCOW_TZ, DEFAULT_TIME, DATA_FILE, SUBSCRIPTION_PRICE, PAYMENT_PROVIDER_TOKEN, PAYMENT_TITLE, PAYMENT_DESCRIPTION
 from Wb_bot import get_available_users_from_config, get_user_cabinets, generate_report, main_from_config
 from WB_orders import get_wb_product_cards
 
@@ -34,22 +30,7 @@ storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
 scheduler = AsyncIOScheduler()
 
-# Настройки времени
-MOSCOW_TZ = pytz.timezone('Europe/Moscow')
 
-# Время отчетов по умолчанию (6:00 МСК)
-DEFAULT_TIME = t(6, 0, tzinfo=MOSCOW_TZ)
-
-# Файл для сохранения данных
-DATA_FILE = "user_data.json"
-
-# Добавляем константы для оплаты
-SUBSCRIPTION_PRICE = 500
-YOOKASSA_PAYMENT_URL = "https://yookassa.ru/"
-
-PAYMENT_PROVIDER_TOKEN = YOOKASSA_TOKEN  # Используем тестовый токен
-PAYMENT_TITLE = "Подписка на бота ПРИБЫЛЬ СЕЙЧАС | WB"
-PAYMENT_DESCRIPTION = "Доступ к функционалу бота на 1 месяц"
 
 # Состояния для добавления пользователя
 class UserRegistrationStates(StatesGroup):
@@ -297,7 +278,6 @@ async def buy_handler(message: types.Message):
             prices=prices,
             payload=f"subscription_{user_id}",
             start_parameter="subscription",
-            photo_url="https://via.placeholder.com/150",
             is_flexible=False
         )
     except Exception as e:
@@ -679,7 +659,7 @@ async def get_report_callback(callback: types.CallbackQuery):
     logging.info(f"{user_id} Все кабинеты добавлены к клавинатуре")
     try:
         logging.info(f"{user_id} До изменения сообщения")
-        await callback.message.edit_text(f"Выберите личный кабинет:", reply_markup=keyboard)
+        await callback.message.answer(f"Выберите личный кабинет:", reply_markup=keyboard)
         logging.info(f"{user_id} После изменения сообщения")
     except MessageNotModified:
         logging.error(f"{user_id} MessageNotModified ")
