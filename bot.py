@@ -791,7 +791,7 @@ async def send_report_as_file(chat_id: int, username: str, cabinet_name: str, df
 
             instruction_format = workbook.add_format({
                 'bold': True,
-                'font_size': 12, 
+                'font_size': 12,
             })
             instruction_format.set_text_wrap()
             worksheet.merge_range(start_row+2, 0, start_row+3, 3, 'Все показатели обновляются +- ежемоментно , кроме числа Заказов. Заказы - 1 раз в Час. Ограничение WB', instruction_format)
@@ -852,10 +852,27 @@ async def process_report_callback(callback: types.CallbackQuery):
                 return
 
             summ = {'costs': 0.0, 'profit': 0.0}
-            for cabinet_name in cabinets:
-                df, summary = await generate_report(username, cabinet_name, CONFIG_URL)
+            tasks = []
+            results = []
 
-                
+            for cabinet_name in cabinets:
+                task = asyncio.create_task(
+                    generate_report(username, cabinet_name, CONFIG_URL)
+                )
+                tasks.append(task)
+            
+            done, pending = await asyncio.wait(tasks, timeout=60.0)
+            
+            for task in done:
+                try:
+                    df, summary = task.result()
+                    results.append((df, summary))
+                except Exception as e:
+                    logging.error(f"Ошибка генерации отчета: {e}")
+                    await bot.send_message(user_id, f"⚠️ Ошибка при генерации отчета для одного из кабинетов")
+                    continue
+
+            for df, summary in results:    
                 if summary == "429_error":
                     await bot.send_message(user_id, "⚠️ Превышен лимит запросов. Попробуйте позже")
                     return

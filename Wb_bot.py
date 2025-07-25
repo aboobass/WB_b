@@ -8,6 +8,9 @@ from WB_orders import get_dict_orders, get_wb_product_cards
 import numpy as np
 import logging
 
+from asyncio import Semaphore
+semaphore = Semaphore(10)  # Максимум 10 задач
+
 # Настройки WB API
 WB_STAT_URL = 'https://statistics-api.wildberries.ru/api/v1/supplier/'
 HEADERS = {}
@@ -343,7 +346,72 @@ def update_google_sheet_multi(sheet_id, sheet_name, data_df, spreadsheet):
         import traceback
         traceback.print_exc()
 
+
+async def generate_dayli_report(user_configs, spreadsheet, date_from):
+    
+    for sheet_id, wb_key, sheet_name in user_configs:
+        logging.info(f"\n--- Обработка ЛК: {sheet_name} ---")
+        HEADERS = {'Authorization': wb_key}
+        # Получение данных с возобновляемой обработкой
+        orders = None
+        orders_state = None
+        max_retries = 10
+        try:
+            cards = await get_wb_product_cards(HEADERS)
+            for attempt in range(max_retries):
+                orders = await get_dict_orders(HEADERS, date_from[:10], state=orders_state, cards=cards)
+                
+                # Если получили состояние для повтора
+                if isinstance(orders, dict) and orders.get('error') == 429:
+                    wait_time = 30
+                    logging.info(f"Waiting {wait_time}s for orders API (attempt {attempt+1}/{max_retries})")
+                    await asyncio.sleep(wait_time)
+                    orders_state = orders.get('state')
+                    continue
+                    
+                # Успешное завершение
+                break
+            
+            # Если после всех попыток всё равно ошибка
+            if isinstance(orders, dict) and orders.get('error') == 429:
+                return pd.DataFrame(), "429_error"
+            
+            # Получение расходов на рекламу
+            ad_stats = None
+            # ad_state = None
+            max_retries = 3
+            for attempt in range(max_retries):
+                ad_stats = await get_expenses_per_nm(HEADERS, date_from)
+                
+                if isinstance(ad_stats, dict) and ad_stats.get('error') == 429:
+                    wait_time = 30
+                    logging.info(f"Waiting {wait_time}s for ads API (attempt {attempt+1}/{max_retries})")
+                    await asyncio.sleep(wait_time)
+                    continue
+                    
+                break
+            
+            if isinstance(ad_stats, dict) and ad_stats.get('error') == 429:
+                return pd.DataFrame(), "429_error"
+            metrics_df = await calculate_metrics(
+                orders, ad_stats, sheet_id, sheet_name)
+
+            if not metrics_df.empty:
+                update_google_sheet_multi(
+                    sheet_id, sheet_name, metrics_df, spreadsheet)
+            else:
+                logging.info(f"[{sheet_name}] Нет данных для записи")
+        except Exception as e:
+            logging.error(f'Ошибка генерации отчёта - {e}')
+
+
+async def run_report(user_configs, spreadsheet, date_from):
+    async with semaphore:
+        await generate_dayli_report(user_configs, spreadsheet, date_from)
+
+
 async def main_from_config(cache, config_url: str, date_from=None, date_to=None):
+    print(1)
     if not date_from:
         date_from = datetime.now() - timedelta(days=1)  # Минус 1 день
         date_from = date_from.replace(hour=0, minute=0, second=0,
@@ -359,66 +427,12 @@ async def main_from_config(cache, config_url: str, date_from=None, date_to=None)
         client = gspread.authorize(CREDS)
         for user, user_configs in configs.items():
             logging.info(f"\n--- Обработка пользователя: {user} ---")
-
             user_status =  await cache.get_user_subscription_per_username(user)
             if not user_status:
                 logging.info(f"\n--- Не оплачена подписка:  ---")
                 continue
             spreadsheet = client.open_by_key(user_configs[0][0])
-            for sheet_id, wb_key, sheet_name in user_configs:
-                logging.info(f"\n--- Обработка ЛК: {sheet_name} ---")
-
-                global WB_API_KEY, HEADERS
-                WB_API_KEY = wb_key
-                HEADERS = {'Authorization': WB_API_KEY}
-                # Получение данных с возобновляемой обработкой
-                orders = None
-                orders_state = None
-                max_retries = 10
-                cards = await get_wb_product_cards(HEADERS)
-                for attempt in range(max_retries):
-                    orders = await get_dict_orders(HEADERS, date_from[:10], state=orders_state, cards=cards)
-                    
-                    # Если получили состояние для повтора
-                    if isinstance(orders, dict) and orders.get('error') == 429:
-                        wait_time = 30
-                        logging.info(f"Waiting {wait_time}s for orders API (attempt {attempt+1}/{max_retries})")
-                        await asyncio.sleep(wait_time)
-                        orders_state = orders.get('state')
-                        continue
-                        
-                    # Успешное завершение
-                    break
-                
-                # Если после всех попыток всё равно ошибка
-                if isinstance(orders, dict) and orders.get('error') == 429:
-                    return pd.DataFrame(), "429_error"
-                
-                # Получение расходов на рекламу
-                ad_stats = None
-                # ad_state = None
-                max_retries = 3
-                for attempt in range(max_retries):
-                    ad_stats = await get_expenses_per_nm(HEADERS, date_from)
-                    
-                    if isinstance(ad_stats, dict) and ad_stats.get('error') == 429:
-                        wait_time = 30
-                        logging.info(f"Waiting {wait_time}s for ads API (attempt {attempt+1}/{max_retries})")
-                        await asyncio.sleep(wait_time)
-                        continue
-                        
-                    break
-                
-                if isinstance(ad_stats, dict) and ad_stats.get('error') == 429:
-                    return pd.DataFrame(), "429_error"
-                metrics_df = await calculate_metrics(
-                    orders, ad_stats, sheet_id, sheet_name)
-
-                if not metrics_df.empty:
-                    update_google_sheet_multi(
-                        sheet_id, sheet_name, metrics_df, spreadsheet)
-                else:
-                    logging.info(f"[{sheet_name}] Нет данных для записи")
+            asyncio.create_task(run_report(user_configs, spreadsheet, date_from))
 
     except Exception as e:
         logging.error(f"Критическая ошибка: {e}")
@@ -575,7 +589,7 @@ async def generate_report(sheet_user: str, sheet_name: str, config_url: str, dat
                     # Формирование отчета
                     metrics_df = await calculate_metrics_for_bot(orders, ad_stats, sheet_id, sheet_name)
                     summary = await generate_summary(metrics_df)
-                    logging.info('Метрики посчитаны')
+                    logging.info(f'{user} [{sheet_name}] Метрики посчитаны')
                     try:
                         result = metrics_df[[
                             'Артикул продавца',
