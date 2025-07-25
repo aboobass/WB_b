@@ -41,7 +41,7 @@ async def get_client_data(sheet_id, cabinet_name):
                     }
         return data_dict
     except Exception as e:
-        print(f"Ошибка при получении данных из таблицы {sheet_id}: {e}")
+        logging.error(f"Ошибка при получении данных из таблицы {sheet_id}: {e}")
         return {}
 
 async def calculate_metrics(orders, ad_stats_df, client_sheet_id, cabinet_name):
@@ -139,7 +139,7 @@ async def calculate_metrics(orders, ad_stats_df, client_sheet_id, cabinet_name):
             'CTR (Автоматические компании)', 'CTR (Аукционы)', 'Конверсия в корзину', 'Конверсия в заказ', 
         ]]
     except Exception as e:
-        print(f"Ошибка при расчете метрик: {str(e)}")
+        logging.error(f"Ошибка при расчете метрик: {str(e)}")
         import traceback
         traceback.print_exc()
         return pd.DataFrame()
@@ -178,10 +178,10 @@ def get_available_users_from_config(config_url: str) -> list:
                 users.add(str(row["Клиент"]).strip())
         return sorted(users)
     except Exception as e:
-        print(f"Ошибка при получении списка пользователей: {e}")
+        logging.error(f"Ошибка при получении списка пользователей: {e}")
         return []
 
-def get_user_cabinets(config_url: str, username: str) -> list:
+async def get_user_cabinets(config_url: str, username: str) -> list:
     """Возвращает личные кабинеты для конкретного пользователя"""
     try:
         client = gspread.authorize(CREDS)
@@ -194,12 +194,12 @@ def get_user_cabinets(config_url: str, username: str) -> list:
                 cabinets.append(str(row["Личный кабинет"]).strip())
         return sorted(cabinets)
     except Exception as e:
-        print(f"Ошибка при получении кабинетов пользователя: {e}")
+        logging.error(f"Ошибка при получении кабинетов пользователя: {e}")
         return []
 
 def update_google_sheet_multi(sheet_id, sheet_name, data_df, spreadsheet):
     if data_df.empty:
-        print(f"[{sheet_name}] Нет данных для записи")
+        logging.info(f"[{sheet_name}] Нет данных для записи")
         return
 
     try:
@@ -337,13 +337,13 @@ def update_google_sheet_multi(sheet_id, sheet_name, data_df, spreadsheet):
             "backgroundColor": {"red": 0.95, "green": 0.95, "blue": 0.95}
         })
 
-        print(f"[{sheet_name}] Добавлено строк: {len(values)}")
+        logging.info(f"[{sheet_name}] Добавлено строк: {len(values)}")
     except Exception as e:
-        print(f"[{sheet_name}] Ошибка при обновлении Google Таблицы: {e}")
+        logging.error(f"[{sheet_name}] Ошибка при обновлении Google Таблицы: {e}")
         import traceback
         traceback.print_exc()
 
-async def main_from_config(config_url: str, date_from=None, date_to=None):
+async def main_from_config(cache, config_url: str, date_from=None, date_to=None):
     if not date_from:
         date_from = datetime.now() - timedelta(days=1)  # Минус 1 день
         date_from = date_from.replace(hour=0, minute=0, second=0,
@@ -352,17 +352,21 @@ async def main_from_config(config_url: str, date_from=None, date_to=None):
         date_to = datetime.now().replace(hour=0, minute=0, second=0,
                                          microsecond=0).strftime('%Y-%m-%dT%H:%M:%S')
 
-    print(f"\nОбработка данных за период: {date_from} - {date_to}")
+    logging.info(f"\nОбработка данных за период: {date_from} - {date_to}")
 
     try:
         configs = await read_config(config_url)
+        client = gspread.authorize(CREDS)
         for user, user_configs in configs.items():
-            print(f"\n--- Обработка пользователя: {user} ---")
-            client = gspread.authorize(CREDS)
-            spreadsheet = client.open_by_key(user_configs[0][0])
+            logging.info(f"\n--- Обработка пользователя: {user} ---")
 
+            user_status =  await cache.get_user_subscription_per_username(user)
+            if not user_status:
+                logging.info(f"\n--- Не оплачена подписка:  ---")
+                continue
+            spreadsheet = client.open_by_key(user_configs[0][0])
             for sheet_id, wb_key, sheet_name in user_configs:
-                print(f"\n--- Обработка ЛК: {sheet_name} ---")
+                logging.info(f"\n--- Обработка ЛК: {sheet_name} ---")
 
                 global WB_API_KEY, HEADERS
                 WB_API_KEY = wb_key
@@ -414,10 +418,10 @@ async def main_from_config(config_url: str, date_from=None, date_to=None):
                     update_google_sheet_multi(
                         sheet_id, sheet_name, metrics_df, spreadsheet)
                 else:
-                    print(f"[{sheet_name}] Нет данных для записи")
+                    logging.info(f"[{sheet_name}] Нет данных для записи")
 
     except Exception as e:
-        print(f"Критическая ошибка: {e}")
+        logging.error(f"Критическая ошибка: {e}")
 
 async def calculate_metrics_for_bot(orders, ad_stats_df, client_sheet_id, cabinet_name):
     try:
@@ -485,7 +489,7 @@ async def calculate_metrics_for_bot(orders, ad_stats_df, client_sheet_id, cabine
         except:
             return pd.DataFrame()
     except Exception as e:
-        print(f"Ошибка при расчете метрик: {str(e)}")
+        logging.error(f"Ошибка при расчете метрик: {str(e)}")
         import traceback
         traceback.print_exc()
         return pd.DataFrame()
@@ -509,7 +513,7 @@ async def generate_summary(df):
 
         return "\n".join(summary)
     except Exception as e:
-        print(f"Ошибка при формировании сводки: {e}")
+        logging.error(f"Ошибка при формировании сводки: {e}")
         return "Не удалось сформировать сводку"
 
 async def generate_report(sheet_user: str, sheet_name: str, config_url: str, date_from=None, date_to=None) -> tuple:
@@ -589,4 +593,4 @@ async def generate_report(sheet_user: str, sheet_name: str, config_url: str, dat
         return pd.DataFrame(), ""
 
 if __name__ == "__main__":
-    asyncio.run(main_from_config(CONFIG_URL))
+    asyncio.run(main_from_config({}, CONFIG_URL))

@@ -1,5 +1,5 @@
 from aiogram.types import InputFile, ReplyKeyboardMarkup, KeyboardButton
-from datetime import datetime
+from datetime import datetime, date, timedelta
 import asyncio
 import logging
 import json
@@ -53,6 +53,10 @@ class SupportStates(StatesGroup):
     WAITING_QUESTION = State()
     WAITING_REPLY = State()
 
+# Состояние для повышения пользователя
+class ImproveStates(StatesGroup):
+    WAITING_MESSAGE = State()
+
 class BroadcastStates(StatesGroup):
     WAITING_MESSAGE = State()
     CONFIRMATION = State()
@@ -63,6 +67,11 @@ EMAIL_REGEX = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
 
 # Инициализация Google Sheets API
 gc = gspread.authorize(CREDS)
+
+def get_payment_keyboard():
+    kb = InlineKeyboardMarkup()
+    kb.add(InlineKeyboardButton("Оплатить подписку", callback_data="subscribe"))
+    return kb
 
 def get_cancel_keyboard():
     kb = InlineKeyboardMarkup()
@@ -107,6 +116,8 @@ class UserDataCache:
         self.config_cache = None
         self.user_mapping = {}
         self.user_spreadsheet_urls = {}
+        self.role_users = {}
+        self.subscribe_date = {}
 
     async def load_data(self):
         if os.path.exists(DATA_FILE):
@@ -115,14 +126,20 @@ class UserDataCache:
                     data = json.load(f)
                     self.user_mapping = {int(k): v for k, v in data.get('user_mapping', {}).items()}
                     self.user_spreadsheet_urls = data.get('user_spreadsheet_urls', {})
+                    self.role_users = data.get('role_users', {})
+                    self.subscribe_date = data.get('user_subscribe_date', {})
             except Exception as e:
                 logging.error(f"Ошибка загрузки данных: {e}")
 
     async def save_data(self):
         data = {
             'user_mapping': self.user_mapping,
-            'user_spreadsheet_urls': self.user_spreadsheet_urls
+            'user_spreadsheet_urls': self.user_spreadsheet_urls,
+            'user_subscribe_date': self.subscribe_date,
+            'role_users': self.role_users
         }
+        if len(data['user_mapping'].keys()) <= 0:
+            return
         try:
             with open(DATA_FILE, 'w') as f:
                 json.dump(data, f)
@@ -134,7 +151,7 @@ class UserDataCache:
             users = get_available_users_from_config(CONFIG_URL)
             config = {}
             for user in users:
-                cabinets = get_user_cabinets(CONFIG_URL, user)
+                cabinets = await get_user_cabinets(CONFIG_URL, user)
                 config[user] = cabinets
             self.config_cache = config
             logging.info(f"Обновлен кэш для всех")
@@ -146,7 +163,7 @@ class UserDataCache:
     async def update_user_in_cache(self, username: str):
         """Обновляет кэш для конкретного пользователя"""
         try:
-            cabinets = get_user_cabinets(CONFIG_URL, username)
+            cabinets = await get_user_cabinets(CONFIG_URL, username)
             if self.config_cache is None:
                 self.config_cache = {}
             self.config_cache[username] = cabinets
@@ -159,32 +176,56 @@ class UserDataCache:
             await self.update_config_cache()
         return self.config_cache
 
-    # async def get_user_cabinets(self, username: str):
-    #     config = await self.get_config_cache()
-    #     return config.get(username, []) if config else []
-
     async def get_user_cabinets(self, username: str):
         # Если кэш пустой - обновляем полностью
         if self.config_cache is None:
             await self.update_config_cache()
-        
+
         # Если пользователь есть в кэше - возвращаем его данные
         if username in self.config_cache:
             return self.config_cache[username]
-        
+
         # Если пользователя нет - обновляем только его данные
         await self.update_user_in_cache(username)
         return self.config_cache.get(username, [])
 
-    async def get_available_users(self):
-        config = await self.get_config_cache()
-        return list(config.keys()) if config else []
+    async def get_user_from_id(self, telegram_id: int):
+        return self.user_mapping.get(telegram_id)
 
-    async def get_available_users_for_user(self, telegram_id: int):
-        return [self.user_mapping.get(telegram_id)]
-
-    async def bind_user(self, telegram_id: int, username: str):
+    async def bind_user(self, telegram_id: int, username: str, spreadsheet_url, date_of_registration):
         self.user_mapping[telegram_id] = username
+        self.user_spreadsheet_urls[username] = spreadsheet_url
+        self.role_users[username] = 'Common'
+        self.subscribe_date[username] = str(date_of_registration)
+        await self.save_data()
+
+    async def improve_user(self, telegram_id: int):
+        username = await self.get_user_from_id(telegram_id)
+        self.role_users[username] = 'Premium'
+        await self.save_data()
+
+    async def get_user_subscription_per_username(self, username: str):
+        if self.role_users.get(username) == 'Premium':
+            return True
+        user_date = self.subscribe_date.get(username, None)
+        if user_date:
+            sub_date = datetime.strptime(user_date, '%Y-%m-%d').date()
+            return (date.today() - sub_date).days <= 31
+        return False
+
+    async def get_user_subscription(self, telegram_id: int):
+        user = await self.get_user_from_id(telegram_id)
+        if self.role_users.get(user) == 'Premium':
+            return True
+        user_date = self.subscribe_date.get(user, None)
+        if user_date:
+            sub_date = datetime.strptime(user_date, '%Y-%m-%d').date()
+            return (date.today() - sub_date).days <= 30
+        return False
+
+    async def update_user_subscription(self, telegram_id: int):
+        user = await self.get_user_from_id(telegram_id)
+        self.subscribe_date[user] = str(date.today())
         await self.save_data()
 
 # Инициализация кэша
@@ -239,27 +280,34 @@ async def show_admin_menu(chat_id, message_text="Выберите действи
     await bot.send_message(chat_id, message_text, reply_markup=admin_kb)
 
 
-# Добавьте новую команду для проверки платежей
-@dp.message_handler(commands=["checkpayments"])
-async def check_payments_status(message: types.Message):
-    await message.answer(
-        f"Статус платежной системы:\n"
-        f"• Токен: {'установлен' if PAYMENT_PROVIDER_TOKEN else 'отсутствует'}\n"
-        f"• Режим: {'ТЕСТОВЫЙ' if 'TEST' in (PAYMENT_PROVIDER_TOKEN or '') else 'боевой'}"
-    )
+@dp.message_handler(commands=["check_subscription"])
+async def check_sub(message: types.Message):
+    res = await cache.get_user_subscription(message.from_user.id)
+    await bot.send_message(message.chat.id, str(res))
+    return
 
-
-# Улучшенный обработчик команды /buy
-@dp.message_handler(commands=["buy"])
-async def buy_handler(message: types.Message):
-    if not PAYMENT_PROVIDER_TOKEN:
-        await message.answer("❌ Платежная система временно недоступна")
+@dp.callback_query_handler(lambda c: c.data == "subscribe")
+async def buy_handler(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    username = await cache.get_user_from_id(user_id)
+    if cache.role_users.get(username, None) == 'Premium':
+        await bot.send_message(user_id, 'У Вас премиум аккаунт, оплачивать не надо')
+        await show_main_menu(user_id)
         return
 
-    user_id = message.from_user.id
+    user_status = await cache.get_user_subscription(user_id)
+    if user_status:
+        await bot.send_message(user_id, 'У Вас уже оплачена подписка')
+        await show_main_menu(user_id)
+        return
+
+    if not PAYMENT_PROVIDER_TOKEN:
+        await callback.message.answer("❌ Платежная система временно недоступна")
+        await show_main_menu(user_id)
+        return
 
     if not cache.user_mapping.get(user_id):
-        await message.answer("❌ Для оформления подписки сначала зарегистрируйтесь с помощью /start")
+        await callback.message.answer("❌ Для оформления подписки сначала зарегистрируйтесь с помощью /start")
         return
 
     prices = [LabeledPrice(label="Подписка на 1 месяц", amount=SUBSCRIPTION_PRICE * 100)]
@@ -270,7 +318,7 @@ async def buy_handler(message: types.Message):
         markup.add(InlineKeyboardButton("❌ Отмена", callback_data="cancel_payment"))
 
         await bot.send_invoice(
-            chat_id=message.chat.id,
+            chat_id=callback.message.chat.id,
             title=PAYMENT_TITLE,
             description=PAYMENT_DESCRIPTION,
             provider_token=PAYMENT_PROVIDER_TOKEN,
@@ -282,8 +330,8 @@ async def buy_handler(message: types.Message):
         )
     except Exception as e:
         logging.error(f"Ошибка при создании инвойса: {str(e)}")
-        await message.answer("❌ Произошла ошибка при создании платежа. Попробуйте позже.")
-
+        await callback.message.answer("❌ Произошла ошибка при создании платежа. Попробуйте позже.")
+        await show_main_menu(user_id)
 
 # Обработчик отмены платежа
 @dp.callback_query_handler(lambda c: c.data == "cancel_payment")
@@ -304,25 +352,52 @@ async def process_pre_checkout_query(pre_checkout_query: types.PreCheckoutQuery)
 async def process_successful_payment(message: types.Message):
     user_id = message.from_user.id
     payment_info = message.successful_payment
-
+    print(user_id)
     # Здесь можно сохранить информацию об оплате в базу данных
     # или выполнить другие действия после успешной оплаты
+    await cache.update_user_subscription(user_id)
 
     await bot.send_message(
         chat_id=message.chat.id,
         text=f"✅ Платеж на сумму {payment_info.total_amount // 100} руб. успешно завершен!\n"
              "Теперь вам доступен полный функционал бота."
     )
+    await show_main_menu(user_id)
 
-    # Можно также обновить статус подписки пользователя
-    # Например: await update_user_subscription(user_id, True)
+@dp.message_handler(commands=["get_premium"])
+async def get_premium_callback(message: types.Message):
+    user_id = message.from_user.id
+    username = await cache.get_user_from_id(user_id)
+    if cache.role_users.get(username, 0) == 'Premium':
+        await bot.send_message(user_id, 'Вы уже обладаете премиум аккаунтом')
+        await show_main_menu(user_id)
+        return
+    kb = InlineKeyboardMarkup()
+    kb.add(InlineKeyboardButton("Разрешить", callback_data=f"confirm_request:{user_id}"))
+    kb.add(InlineKeyboardButton("Запретить", callback_data=f"reject_request:{user_id}"))
+    for admin in ADMIN_IDS:
+        await bot.send_message(admin, f'Пользователь {user_id} хочет получить премиум аккаунт', reply_markup=kb)
+    await bot.send_message(user_id, 'Ваш запрос отправлен админу')
 
+@dp.callback_query_handler(lambda c: c.data.startswith("confirm_request"))
+async def confirm_request_callback(callback: types.CallbackQuery):
+    await callback.message.delete()
+    user_id = int(callback.data.split(":")[1])
+    await cache.improve_user(user_id)
+    await bot.send_message(user_id, 'Ваш запрос на премиум аккаунт одобрен')
+    await show_main_menu(user_id)
+
+@dp.callback_query_handler(lambda c: c.data.startswith("reject_request"))
+async def reject_request_callback(callback: types.CallbackQuery):
+    await callback.message.delete()
+    user_id = int(callback.data.split(":")[1])
+    await bot.send_message(user_id, 'Ваш запрос на премиум аккаунт отклонён')
+    await show_main_menu(user_id)
 
 
 @dp.message_handler(commands=["start"])
 async def start_handler(message: types.Message):
     user_id = message.from_user.id
-    await cache.load_data()
 
     if is_admin(user_id) and cache.user_mapping.get(user_id):
         await message.answer("👋 Привет, администратор!\nВы будете получать сообщения от пользователей.",)
@@ -585,9 +660,7 @@ async def process_registration_cabinet_name(message: types.Message, state: FSMCo
     )
 
     # Сохраняем данные
-    cache.user_spreadsheet_urls[username] = spreadsheet_info['url']
-    await cache.bind_user(message.from_user.id, username)
-    await cache.save_data()
+    await cache.bind_user(message.from_user.id, username, spreadsheet_info['url'], date.today())
 
     # Инициализируем таблицу
     spreadsheet = gc.open_by_url(spreadsheet_info['url'])
@@ -619,18 +692,15 @@ async def get_report_callback(callback: types.CallbackQuery):
         pass
     user_id = callback.from_user.id
     logging.info(f"{user_id} | Нажата кнопка 'Получить отчёт'")
-    users = await cache.get_available_users_for_user(user_id)
-    logging.info(f"Доступные пользователи: {users}")
-    if not users or not users[0]:
-        try:
-            await msg.edit_text("⚠️ Вы не привязаны ни к одному пользователю.")
-        except MessageNotModified:
-            pass
-        logging.error(f"{user_id}  users = {users}")
-        await show_main_menu(msg.chat.id)
+
+    sub_status = await cache.get_user_subscription(user_id)
+    if not sub_status:
+        await bot.send_message(user_id, f"⚠️ Вы не оплатили подписку", reply_markup=get_payment_keyboard())
+        logging.error(f"{user_id}  Не оплачена подписка")
         return
 
-    username = users[0]
+    username = await cache.get_user_from_id(user_id)
+
     cabinets = await cache.get_user_cabinets(username)
     logging.info(f"Кабинеты пользователя {username}: {cabinets}")
 
@@ -659,7 +729,7 @@ async def get_report_callback(callback: types.CallbackQuery):
     logging.info(f"{user_id} Все кабинеты добавлены к клавинатуре")
     try:
         logging.info(f"{user_id} До изменения сообщения")
-        await callback.message.answer(f"Выберите личный кабинет:", reply_markup=keyboard)
+        await callback.message.edit_text(f"Выберите личный кабинет:", reply_markup=keyboard)
         logging.info(f"{user_id} После изменения сообщения")
     except MessageNotModified:
         logging.error(f"{user_id} MessageNotModified ")
@@ -709,7 +779,8 @@ async def send_report_as_file(chat_id: int, username: str, cabinet_name: str, df
             value_format = workbook.add_format({
                 'font_size': 12,
                 'align': 'right',
-                'num_format': '#,##0.00'
+                'num_format': '#,##0.00',
+
             })
 
             worksheet.write(start_row, 0, "СВОДКА ПО ОТЧЕТУ", header_format)
@@ -717,6 +788,13 @@ async def send_report_as_file(chat_id: int, username: str, cabinet_name: str, df
             worksheet.write(start_row, 1, parts[0].strip(), value_format)
             worksheet.write(start_row, 2, parts[1].strip(), value_format)
             worksheet.write(start_row, 3, parts[2].strip(), value_format)
+
+            instruction_format = workbook.add_format({
+                'bold': True,
+                'font_size': 12, 
+            })
+            instruction_format.set_text_wrap()
+            worksheet.merge_range(start_row+2, 0, start_row+3, 3, 'Все показатели обновляются +- ежемоментно , кроме числа Заказов. Заказы - 1 раз в Час. Ограничение WB', instruction_format)
 
         timestamp = datetime.now().strftime("%Y%m%d %H_%M")
         file_name = f"Отчет_{cabinet_name}_{timestamp}.xlsx"
@@ -747,6 +825,13 @@ async def process_report_callback(callback: types.CallbackQuery):
     cabinet = parts[2]
 
     logging.info(f"{user_id} | Нажата кнопка отчёта по '{cabinet}'")
+
+    sub_status = await cache.get_user_subscription(user_id)
+    if not sub_status:
+        await bot.send_message(user_id, f"⚠️ Вы не оплатили подписку", reply_markup=get_payment_keyboard())
+        logging.error(f"{user_id}  Не оплачена подписка")
+        return
+
     try:
         wait_message = await callback.message.edit_text(
             text="🔄 Формирую отчёт, это займёт некоторое время...",
@@ -1046,8 +1131,14 @@ async def manage_cabinets_callback(callback: types.CallbackQuery):
         pass
     user_id = callback.from_user.id
     logging.info(f"{user_id} | Нажата кнопка 'Управление кабинетами'")
-    username = cache.user_mapping.get(user_id)
 
+    sub_status = await cache.get_user_subscription(user_id)
+    if not sub_status:
+        await bot.send_message(user_id, f"⚠️ Вы не оплатили подписку", reply_markup=get_payment_keyboard())
+        logging.error(f"{user_id}  Не оплачена подписка")
+        return
+
+    username = cache.user_mapping.get(user_id)
     if not username:
         return
 
@@ -1101,9 +1192,16 @@ async def select_cabinet_callback(callback: types.CallbackQuery, state: FSMConte
     
     cabinet_name = callback.data.split(":")[1]
     user_id = callback.from_user.id
+    logging.info(f"{user_id} | Нажата кнопка управления кабинетом '{cabinet_name}'")
+
+    sub_status = await cache.get_user_subscription(user_id)
+    if not sub_status:
+        await bot.send_message(user_id, f"⚠️ Вы не оплатили подписку", reply_markup=get_payment_keyboard())
+        logging.error(f"{user_id}  Не оплачена подписка")
+        return
+
     username = cache.user_mapping.get(user_id)
 
-    logging.info(f"{user_id} | Нажата кнопка управления кабинетом '{cabinet_name}'")
 
     async with state.proxy() as data:
         data['cabinet'] = cabinet_name
@@ -1131,8 +1229,14 @@ async def select_cabinet_callback(callback: types.CallbackQuery, state: FSMConte
 @dp.callback_query_handler(lambda c: c.data == "add_cabinet_in_manage", state=ManageCabinetStates.SELECT_CABINET)
 async def add_cabinet_in_manage_callback(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
-    username = cache.user_mapping.get(user_id)
 
+    sub_status = await cache.get_user_subscription(user_id)
+    if not sub_status:
+        await bot.send_message(user_id, f"⚠️ Вы не оплатили подписку", reply_markup=get_payment_keyboard())
+        logging.error(f"{user_id}  Не оплачена подписка")
+        return
+
+    username = cache.user_mapping.get(user_id)
     if not username:
         await callback.answer("❌ Вы не привязаны к аккаунту")
         return
@@ -1192,6 +1296,15 @@ async def rename_cabinet_callback(callback: types.CallbackQuery, state: FSMConte
         await callback.answer()
     except:
         pass
+
+    user_id = callback.from_user.id
+    sub_status = await cache.get_user_subscription(user_id)
+    if not sub_status:
+        await bot.send_message(user_id, f"⚠️ Вы не оплатили подписку", reply_markup=get_payment_keyboard())
+        logging.error(f"{user_id}  Не оплачена подписка")
+        return
+
+
     try:
         # await callback.message.delete()
         await bot.delete_message(
@@ -1206,6 +1319,12 @@ async def rename_cabinet_callback(callback: types.CallbackQuery, state: FSMConte
 async def process_new_cabinet_name2(message: types.Message, state: FSMContext):
     new_name = message.text.strip()
     user_id = message.from_user.id
+
+    sub_status = await cache.get_user_subscription(user_id)
+    if not sub_status:
+        await bot.send_message(user_id, f"⚠️ Вы не оплатили подписку", reply_markup=get_payment_keyboard())
+        logging.error(f"{user_id}  Не оплачена подписка")
+        return
 
     if not validate_cabinet_name(new_name):
         await message.answer("❌ Название кабинета должно начинаться с буквы, состоять только из букв и цифр и быть короче 50 символов!")
@@ -1264,6 +1383,19 @@ async def delete_cabinet_callback(callback: types.CallbackQuery, state: FSMConte
         await callback.answer()
     except:
         pass
+
+    user_id = callback.from_user.id
+    sub_status = await cache.get_user_subscription(user_id)
+    if not sub_status:
+        await bot.send_message(user_id, f"⚠️ Вы не оплатили подписку", reply_markup=get_payment_keyboard())
+        logging.error(f"{user_id}  Не оплачена подписка")
+        return
+
+    sub_status = await cache.get_user_subscription(user_id)
+    if not sub_status:
+        await bot.send_message(user_id, f"⚠️ Вы не оплатили подписку", reply_markup=get_payment_keyboard())
+        logging.error(f"{user_id}  Не оплачена подписка")
+        return
 
     async with state.proxy() as data:
         cabinet_name = data['cabinet']
@@ -1373,6 +1505,13 @@ async def delete_cabinet(username: str, cabinet_name: str) -> bool:
 
 @dp.callback_query_handler(lambda c: c.data == "refresh_articles", state=ManageCabinetStates.ACTION_CHOICE)
 async def refresh_articles_callback(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    sub_status = await cache.get_user_subscription(user_id)
+    if not sub_status:
+        await bot.send_message(user_id, f"⚠️ Вы не оплатили подписку", reply_markup=get_payment_keyboard())
+        logging.error(f"{user_id}  Не оплачена подписка")
+        return
+
     async with state.proxy() as data:
         cabinet_name = data['cabinet']
         username = data['username']
@@ -1450,11 +1589,22 @@ async def on_startup(dp):
     await cache.load_data()
     await cache.update_config_cache()
     
-    # Удаляем старую задачу перед добавлением
+    # Удаляем старые задачи перед добавлением
+    try:
+        scheduler.remove_job("generate_reports")
+    except:
+        pass
+
     try:
         scheduler.remove_job("daily_config_update")
     except:
         pass
+
+    try:
+        scheduler.remove_job("dayli_subscription_check")
+    except:
+        pass
+
 
     scheduler.add_job(
         main_from_config,
@@ -1462,9 +1612,28 @@ async def on_startup(dp):
         hour=0,
         minute=30,
         timezone=MOSCOW_TZ,
-        args=[CONFIG_URL],
+        args=[cache, CONFIG_URL],
+        id="generate_reports"
+    )
+
+    scheduler.add_job(
+        cache.save_data,
+        'cron',
+        hour=1,
+        minute=10,
+        timezone=MOSCOW_TZ,
         id="daily_config_update"
     )
+
+    scheduler.add_job(
+        check_subscriptions,
+        'cron',
+        hour=1,
+        minute=10,
+        timezone=MOSCOW_TZ,
+        id="dayli_subscription_check"
+    )
+
     scheduler.start()
 
 async def on_shutdown(dp):
@@ -1480,6 +1649,14 @@ async def support_callback(callback: types.CallbackQuery):
         await callback.answer()
     except:
         pass
+
+    user_id = callback.from_user.id
+    sub_status = await cache.get_user_subscription(user_id)
+    if not sub_status:
+        await bot.send_message(user_id, f"⚠️ Вы не оплатили подписку", reply_markup=get_payment_keyboard())
+        logging.error(f"{user_id}  Не оплачена подписка")
+        return
+
     try:
         await callback.message.delete()
     except: 
@@ -1758,6 +1935,14 @@ async def cancel_broadcast(callback: types.CallbackQuery, state: FSMContext):
         await callback.message.delete()
     except:
         pass
+
+
+async def check_subscriptions():
+    users = cache.user_mapping.keys()
+    for i, user_id in enumerate(users):
+        user_status = await cache.get_user_subscription(user_id)
+        if not user_status:
+            await bot.send_message(user_id, 'У вас закончилась подписка. \nДля дальнейшей работоспособности оплатите подписки', reply_markup=get_payment_keyboard())
 
 
 async def main():
